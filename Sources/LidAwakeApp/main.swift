@@ -57,8 +57,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let settingsMenu = NSMenu()
         let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC)); ac.state = settings.acOnly ? .on : .off; settingsMenu.addItem(ac)
-        let lock = item(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose)); lock.state = settings.lockOnLidClose ? .on : .off; settingsMenu.addItem(lock)
-        let sound = item(t("Play sound when lid closes", "Звук при закрытии крышки"), #selector(toggleLidCloseSound)); sound.state = settings.soundOnLidClose ? .on : .off; settingsMenu.addItem(sound)
+
+        let lidCloseMenu = NSMenu()
+        let displaySleep = item(t("Turn off displays", "Выключить экран"), #selector(toggleDisplaySleepOnClose))
+        displaySleep.state = settings.displaySleepOnLidClose ? .on : .off
+        lidCloseMenu.addItem(displaySleep)
+
+        let lock = item(t("Lock screen", "Блокировать экран"), #selector(toggleLockOnClose))
+        lock.state = settings.lockOnLidClose ? .on : .off
+        lidCloseMenu.addItem(lock)
+
+        let sound = item(t("Play sound", "Воспроизвести звук"), #selector(toggleLidCloseSound))
+        sound.state = settings.soundOnLidClose ? .on : .off
+        lidCloseMenu.addItem(sound)
 
         let soundVolumeMenu = NSMenu()
         for value in [25, 50, 75, 100] {
@@ -67,7 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let soundVolumeItem = submenu(t("Sound volume", "Громкость звука"), soundVolumeMenu)
         soundVolumeItem.isEnabled = settings.soundOnLidClose
-        settingsMenu.addItem(soundVolumeItem)
+        lidCloseMenu.addItem(soundVolumeItem)
+
+        settingsMenu.addItem(submenu(t("When the lid closes…", "При закрытии крышки…"), lidCloseMenu))
 
         let thermal = item(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal)); thermal.state = settings.thermalProtection ? .on : .off; settingsMenu.addItem(thermal)
         let notifications = item(t("Notifications", "Уведомления"), #selector(toggleNotifications)); notifications.state = settings.notifications ? .on : .off; settingsMenu.addItem(notifications)
@@ -167,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleAC() { perform { try controller.update { $0.acOnly.toggle() } } }
+    @objc private func toggleDisplaySleepOnClose() { perform { try controller.update { $0.displaySleepOnLidClose.toggle() } } }
     @objc private func toggleLockOnClose() { perform { try controller.update { $0.lockOnLidClose.toggle() } } }
     @objc private func toggleLidCloseSound() { perform { try controller.update { $0.soundOnLidClose.toggle() } } }
     @objc private func setLidCloseSoundVolume(_ sender: NSMenuItem) { perform { try controller.update { $0.lidCloseSoundVolume = sender.tag }; _ = controller.playLidCloseSound(volumePercent: sender.tag) } }
