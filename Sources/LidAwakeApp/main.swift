@@ -63,6 +63,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let maxItem = NSMenuItem(title: t("Maximum duration", "Максимальная длительность"), action: nil, keyEquivalent: "")
         maxItem.submenu = maxMenu; menu.addItem(maxItem)
 
+        let languageMenu = NSMenu()
+        let languageOptions: [(AppLanguage, String)] = [
+            (.automatic, t("Automatic", "Автоматически")),
+            (.russian, "Русский"),
+            (.english, "English")
+        ]
+        for (index, option) in languageOptions.enumerated() {
+            let item = NSMenuItem(title: option.1, action: #selector(setLanguage(_:)), keyEquivalent: "")
+            item.target = self; item.tag = index; item.state = L10n.selectedLanguage == option.0 ? .on : .off
+            languageMenu.addItem(item)
+        }
+        let languageItem = NSMenuItem(title: t("Language", "Язык"), action: nil, keyEquivalent: "")
+        languageItem.submenu = languageMenu; menu.addItem(languageItem)
+
         menu.addItem(.separator())
         addItem(t("Check for Updates…", "Проверить обновления…"), #selector(checkUpdates))
         addItem(t("Open Diagnostics…", "Открыть диагностику…"), #selector(showDiagnostics))
@@ -111,6 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleLogin() { perform { try controller.update { $0.launchAtLogin.toggle() } } }
     @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try controller.update { $0.batteryLimit = sender.tag } } }
     @objc private func setMaxDuration(_ sender: NSMenuItem) { perform { try controller.update { $0.maxDuration = sender.tag; if $0.requested { $0.expiresAt = Date().addingTimeInterval(TimeInterval(sender.tag)) } } } }
+    @objc private func setLanguage(_ sender: NSMenuItem) {
+        let options: [AppLanguage] = [.automatic, .russian, .english]
+        guard options.indices.contains(sender.tag) else { return }
+        perform { try L10n.setLanguage(options[sender.tag]); _ = try controller.reconcile() }
+    }
 
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
     @objc private func openLogs() {
