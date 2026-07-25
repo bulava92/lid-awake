@@ -7,7 +7,8 @@ let package = Package(
     products: [
         .executable(name: "lid-awake", targets: ["LidAwakeCLI"]),
         .executable(name: "lid-awake-agent", targets: ["LidAwakeAgent"]),
-        .executable(name: "LidAwakeApp", targets: ["LidAwakeApp"])
+        .executable(name: "LidAwakeApp", targets: ["LidAwakeApp"]),
+        .executable(name: "lid-awake-self-test", targets: ["LidAwakeSelfTest"])
     ],
     targets: [
         .target(name: "LidAwakeCore"),
@@ -22,6 +23,6 @@ let package = Package(
             dependencies: ["LidAwakeCore"],
             linkerSettings: [.linkedFramework("AppKit")]
         ),
-        .testTarget(name: "LidAwakeCoreTests", dependencies: ["LidAwakeCore"])
+        .executableTarget(name: "LidAwakeSelfTest", dependencies: ["LidAwakeCore"])
     ]
 )
