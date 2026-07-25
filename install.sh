@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="1.1.0"
+VERSION="1.2.0"
 APP_NAME="Lid Awake"
 APP_PATH="/Applications/${APP_NAME}.app"
 HELPER_PATH="/usr/local/libexec/lid-awake-helper"
@@ -50,7 +50,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleName</key><string>Lid Awake</string>
 <key>CFBundleDisplayName</key><string>Lid Awake</string>
 <key>CFBundleIdentifier</key><string>su.xyz.LidAwake</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleExecutable</key><string>LidAwakeApp</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
