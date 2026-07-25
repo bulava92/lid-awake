@@ -1,12 +1,44 @@
 import AppKit
+import Carbon.HIToolbox
 import Foundation
 import LidAwakeCore
+
+private let lidAwakeHotKeySignature: OSType = 0x4C41574B // LAWK
+private let lidAwakeHotKeyID: UInt32 = 1
+
+private func lidAwakeHotKeyHandler(
+    _ nextHandler: EventHandlerCallRef?,
+    _ event: EventRef?,
+    _ userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let event, let userData else { return noErr }
+
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+    )
+    guard status == noErr,
+          hotKeyID.signature == lidAwakeHotKeySignature,
+          hotKeyID.id == lidAwakeHotKeyID else { return noErr }
+
+    let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+    delegate.toggleFromHotKey()
+    return noErr
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let controller = LidAwakeController()
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var refreshTimer: Timer?
+    private var hotKeyRef: EventHotKeyRef?
+    private var hotKeyHandlerRef: EventHandlerRef?
 
     private func t(_ en: String, _ ru: String) -> String { L10n.text(en, ru) }
 
@@ -15,11 +47,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.menu = menu
         menu.delegate = self
+        registerGlobalHotKey()
         rebuildMenu()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.rebuildMenu() }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
+        if let hotKeyHandlerRef { RemoveEventHandler(hotKeyHandlerRef) }
+    }
+
     func menuWillOpen(_ menu: NSMenu) { rebuildMenu() }
+
+    private func registerGlobalHotKey() {
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let userData = Unmanaged.passUnretained(self).toOpaque()
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            lidAwakeHotKeyHandler,
+            1,
+            &eventType,
+            userData,
+            &hotKeyHandlerRef
+        )
+
+        let hotKeyID = EventHotKeyID(signature: lidAwakeHotKeySignature, id: lidAwakeHotKeyID)
+        RegisterEventHotKey(
+            UInt32(kVK_ANSI_L),
+            UInt32(cmdKey | optionKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+    }
 
     private func rebuildMenu() {
         menu.removeAllItems()
@@ -35,10 +96,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if state == .blocked, let reason = status?.reason { addLabel(reason) }
         menu.addItem(.separator())
 
-        let enable = addItem(t("Enable", "Включить"), #selector(enablePermanent))
-        enable.state = settings.requested && settings.expiresAt == nil ? .on : .off
-        let disableItem = addItem(t("Disable", "Выключить"), #selector(disable))
-        disableItem.state = !settings.requested ? .on : .off
+        let toggleItem = addItem(
+            settings.requested ? t("Disable", "Выключить") : t("Enable", "Включить"),
+            #selector(togglePermanent)
+        )
+        toggleItem.keyEquivalent = "l"
+        toggleItem.keyEquivalentModifierMask = [.command, .option]
 
         let temporaryMenu = NSMenu()
         for pair in [(900, t("15 minutes", "15 минут")), (3600, t("1 hour", "1 час")), (28_800, t("8 hours", "8 часов"))] {
@@ -164,10 +227,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert(); alert.alertStyle = style; alert.messageText = title; alert.informativeText = message; alert.runModal()
     }
 
-    @objc private func enablePermanent() { perform { try controller.requestEnabled() } }
+    @objc private func togglePermanent() {
+        let settings = controller.loadSettings()
+        perform {
+            if settings.requested {
+                try controller.requestDisabled()
+            } else {
+                try controller.requestEnabled()
+            }
+        }
+    }
+
+    func toggleFromHotKey() {
+        DispatchQueue.main.async { [weak self] in self?.togglePermanent() }
+    }
+
     @objc private func enableTemporary(_ sender: NSMenuItem) { perform { try controller.requestTemporary(duration: sender.tag) } }
     @objc private func cancelTemporary() { perform { try controller.cancelTemporary() } }
-    @objc private func disable() { perform { try controller.requestDisabled() } }
 
     @objc private func customTemporaryMode() {
         let settings = controller.loadSettings()
