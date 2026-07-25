@@ -19,6 +19,8 @@ ICON_PATH="build/AppIcon.icns"
 APP_CONTENTS="build/${APP_NAME}.app/Contents"
 ENTITLEMENTS="Resources/LidAwake.entitlements"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
+SUPPORT_DIR="$HOME/Library/Application Support/Lid Awake"
+LANGUAGE_FILE="$SUPPORT_DIR/language.txt"
 
 [[ -f "$ICON_SOURCE" ]] || { print -u2 "Missing app icon: $ICON_SOURCE"; exit 66; }
 [[ -f "$ENTITLEMENTS" ]] || { print -u2 "Missing entitlements: $ENTITLEMENTS"; exit 66; }
@@ -95,7 +97,15 @@ sudo rm -rf "$APP_PATH"
 sudo ditto "build/${APP_NAME}.app" "$APP_PATH"
 sudo chown -R root:wheel "$APP_PATH"
 
-mkdir -p "$USER_AGENT_DIR" "$HOME/Library/Logs/Lid Awake"
+mkdir -p "$USER_AGENT_DIR" "$HOME/Library/Logs/Lid Awake" "$SUPPORT_DIR"
+if [[ ! -f "$LANGUAGE_FILE" ]]; then
+  if defaults read -g AppleLanguages 2>/dev/null | grep -Eiq '(^|[^a-z])ru([^a-z]|$)'; then
+    print -r -- "russian" > "$LANGUAGE_FILE"
+  else
+    print -r -- "english" > "$LANGUAGE_FILE"
+  fi
+fi
+
 cat > "$USER_AGENT_DIR/${POLICY_LABEL}.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
