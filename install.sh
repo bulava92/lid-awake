@@ -194,6 +194,6 @@ codesign --verify --deep --strict "$AGENT_APP_PATH"
 launchctl print "gui/${USER_ID}/${POLICY_LABEL}" >/dev/null
 launchctl print "gui/${USER_ID}/${APP_LABEL}" >/dev/null
 "$CLI_PATH" status >/dev/null
-[[ "$(sudo "$HELPER_PATH" status)" == "0" ]] || { print -u2 "Safe pmset reset verification failed"; exit 70; }
+[[ "$(sudo "$HELPER_PATH" status)" == "disabled" ]] || { print -u2 "Safe pmset reset verification failed"; exit 70; }
 
 printf '\nInstalled and verified Lid Awake %s. Closed-lid mode is disabled by default.\n' "$VERSION"
