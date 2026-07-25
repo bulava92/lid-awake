@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import LidAwakeCore
 
 let controller = LidAwakeController()
@@ -23,7 +24,7 @@ func fail(_ error: Error) -> Never {
 func startTimer(seconds: Int) throws {
     guard seconds > 0 else { throw LidAwakeError.invalidDuration }
     controller.cancelTimer()
-    try controller.setEnabled(true)
+    _ = try controller.setEnabled(true)
 
     let process = Process()
     process.executableURL = URL(fileURLWithPath: LidAwakeController.cliPath)
