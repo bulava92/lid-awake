@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import IOKit
+import IOKit.ps
 import IOKit.pwr_mgt
 import UserNotifications
 import LidAwakeCore
@@ -13,6 +14,8 @@ final class AgentRuntime {
     private var notificationPort: IONotificationPortRef?
     private var notifier: io_object_t = 0
     private var rootDomain: io_service_t = 0
+    private var powerSourceRunLoopSource: CFRunLoopSource?
+    private var pendingPowerReconcile: DispatchWorkItem?
 
     init() {
         previousLidClosed = controller.readLidClosed()
@@ -25,6 +28,7 @@ final class AgentRuntime {
     func start() {
         requestNotificationPermission()
         installLidObserver()
+        installPowerSourceObserver()
         evaluatePolicy(force: true)
 
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
@@ -62,6 +66,31 @@ final class AgentRuntime {
         }
     }
 
+    private func installPowerSourceObserver() {
+        let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        guard let source = IOPSNotificationCreateRunLoopSource({ context in
+            guard let context else { return }
+            let owner = Unmanaged<AgentRuntime>.fromOpaque(context).takeUnretainedValue()
+            owner.handlePowerSourceChange()
+        }, context)?.takeRetainedValue() else {
+            controller.appendEvent("Could not register IOKit power source observer; using periodic checks")
+            return
+        }
+        powerSourceRunLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+    }
+
+    private func handlePowerSourceChange() {
+        pendingPowerReconcile?.cancel()
+        evaluatePolicy(force: true)
+
+        let delayed = DispatchWorkItem { [weak self] in
+            self?.evaluatePolicy(force: true)
+        }
+        pendingPowerReconcile = delayed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: delayed)
+    }
+
     private func evaluatePolicy(force: Bool) {
         do {
             let shouldForce = force || Date().timeIntervalSince(lastForcedApply) >= 300
@@ -91,14 +120,24 @@ final class AgentRuntime {
                 controller.appendEvent("Could not play lid-close sound")
             }
         }
+
+        var locked = false
         if status.settings.lockOnLidClose {
-            if controller.lockScreen() {
-                Thread.sleep(forTimeInterval: 0.3)
-                _ = run("/usr/bin/pmset", ["displaysleepnow"])
-                controller.appendEvent(L10n.text("Screen locked after lid close", "Экран заблокирован после закрытия крышки"))
-            } else {
+            locked = controller.lockScreen()
+            if !locked {
                 controller.appendEvent(L10n.text("Could not lock screen after lid close", "Не удалось заблокировать экран после закрытия крышки"))
             }
+        }
+
+        if status.settings.displaySleepOnLidClose {
+            if locked { Thread.sleep(forTimeInterval: 0.3) }
+            if run("/usr/bin/pmset", ["displaysleepnow"]) {
+                controller.appendEvent(L10n.text("Displays turned off after lid close", "Дисплеи выключены после закрытия крышки"))
+            } else {
+                controller.appendEvent(L10n.text("Could not turn displays off after lid close", "Не удалось выключить дисплеи после закрытия крышки"))
+            }
+        } else if locked {
+            controller.appendEvent(L10n.text("Screen locked after lid close", "Экран заблокирован после закрытия крышки"))
         }
     }
 
@@ -134,6 +173,10 @@ final class AgentRuntime {
     }
 
     deinit {
+        pendingPowerReconcile?.cancel()
+        if let powerSourceRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .commonModes)
+        }
         if notifier != 0 { IOObjectRelease(notifier) }
         if rootDomain != 0 { IOObjectRelease(rootDomain) }
         if let notificationPort { IONotificationPortDestroy(notificationPort) }
