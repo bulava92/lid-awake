@@ -1,125 +1,141 @@
 import Foundation
-import Darwin
 
-public enum LidAwakeState: String {
-    case enabled
-    case disabled
-    case unknown
-}
+public enum LidAwakeState: String, Codable { case enabled, disabled, blocked, unknown }
 
 public enum LidAwakeError: LocalizedError {
-    case helperUnavailable
-    case commandFailed(String)
-    case invalidDuration
-
+    case helperUnavailable, invalidDuration, invalidValue, commandFailed(String)
     public var errorDescription: String? {
         switch self {
-        case .helperUnavailable:
-            return "Lid Awake helper is not installed. Run install.sh first."
-        case .commandFailed(let message):
-            return message
-        case .invalidDuration:
-            return "Duration must be a positive number of seconds."
+        case .helperUnavailable: return "Lid Awake helper is not installed. Run install.sh first."
+        case .invalidDuration: return "Duration must be a positive number of seconds."
+        case .invalidValue: return "Invalid value."
+        case .commandFailed(let message): return message
         }
     }
+}
+
+public struct LidAwakeSettings: Codable, Equatable {
+    public var requested = false
+    public var acOnly = true
+    public var batteryLimit = 20
+    public var maxDuration = 28_800
+    public var expiresAt: Date?
+    public init() {}
+}
+
+public struct PowerInfo: Codable, Equatable {
+    public var onAC: Bool
+    public var batteryPercent: Int?
+    public init(onAC: Bool, batteryPercent: Int?) {
+        self.onAC = onAC; self.batteryPercent = batteryPercent
+    }
+}
+
+public struct LidAwakeStatus: Codable, Equatable {
+    public var state: LidAwakeState
+    public var reason: String
+    public var settings: LidAwakeSettings
+    public var power: PowerInfo
+    public var updatedAt: Date
 }
 
 public struct LidAwakeController {
     public static let helperPath = "/usr/local/libexec/lid-awake-helper"
     public static let cliPath = "/usr/local/bin/lid-awake"
+    public static let agentPath = "/usr/local/libexec/lid-awake-agent"
+    public static var supportDirectory: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Lid Awake", isDirectory: true) }
+    public static var settingsFile: URL { supportDirectory.appendingPathComponent("settings.json") }
+    public static var statusFile: URL { supportDirectory.appendingPathComponent("status.json") }
 
     public init() {}
 
-    @discardableResult
-    public func setEnabled(_ enabled: Bool) throws -> String {
-        try runHelper(enabled ? "on" : "off")
+    public func loadSettings() -> LidAwakeSettings {
+        guard let data = try? Data(contentsOf: Self.settingsFile), let value = try? JSONDecoder().decode(LidAwakeSettings.self, from: data) else { return LidAwakeSettings() }
+        return value
     }
 
-    public func state() -> LidAwakeState {
-        guard let output = try? runHelper("status") else { return .unknown }
-        switch output.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "enabled": return .enabled
-        case "disabled": return .disabled
-        default: return .unknown
-        }
+    public func saveSettings(_ settings: LidAwakeSettings) throws {
+        try FileManager.default.createDirectory(at: Self.supportDirectory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(settings)
+        try data.write(to: Self.settingsFile, options: .atomic)
     }
 
-    @discardableResult
-    public func runHelper(_ command: String) throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: Self.helperPath) else {
-            throw LidAwakeError.helperUnavailable
+    public func loadStatus() -> LidAwakeStatus? {
+        guard let data = try? Data(contentsOf: Self.statusFile) else { return nil }
+        return try? JSONDecoder().decode(LidAwakeStatus.self, from: data)
+    }
+
+    public func requestEnabled(duration: Int? = nil) throws {
+        var settings = loadSettings()
+        let seconds = duration ?? settings.maxDuration
+        guard seconds > 0 else { throw LidAwakeError.invalidDuration }
+        settings.requested = true
+        settings.expiresAt = Date().addingTimeInterval(TimeInterval(min(seconds, settings.maxDuration)))
+        try saveSettings(settings)
+        _ = try reconcile()
+    }
+
+    public func requestDisabled() throws {
+        var settings = loadSettings(); settings.requested = false; settings.expiresAt = nil
+        try saveSettings(settings); _ = try reconcile()
+    }
+
+    public func update(_ mutate: (inout LidAwakeSettings) throws -> Void) throws {
+        var settings = loadSettings(); try mutate(&settings); try saveSettings(settings); _ = try reconcile()
+    }
+
+    @discardableResult public func reconcile(now: Date = Date()) throws -> LidAwakeStatus {
+        var settings = loadSettings()
+        let power = readPowerInfo()
+        var state: LidAwakeState = .disabled
+        var reason = "Disabled"
+
+        if settings.requested {
+            if let expiry = settings.expiresAt, expiry <= now {
+                settings.requested = false; settings.expiresAt = nil; try saveSettings(settings); reason = "Maximum time reached"
+            } else if settings.acOnly && !power.onAC {
+                state = .blocked; reason = "Waiting for external power"
+            } else if let percent = power.batteryPercent, percent <= settings.batteryLimit {
+                state = .blocked; reason = "Battery is at or below \(settings.batteryLimit)%"
+            } else {
+                state = .enabled; reason = "Closed-lid sleep is disabled"
+            }
         }
 
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
+        _ = try runHelper(state == .enabled ? "on" : "off")
+        let status = LidAwakeStatus(state: state, reason: reason, settings: settings, power: power, updatedAt: now)
+        try FileManager.default.createDirectory(at: Self.supportDirectory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(status).write(to: Self.statusFile, options: .atomic)
+        return status
+    }
+
+    public func readPowerInfo() -> PowerInfo {
+        let output = run("/usr/bin/pmset", ["-g", "batt"])
+        let onAC = output.localizedCaseInsensitiveContains("AC Power")
+        let regex = try? NSRegularExpression(pattern: "([0-9]{1,3})%")
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        var percent: Int?
+        if let match = regex?.firstMatch(in: output, range: range), let r = Range(match.range(at: 1), in: output) { percent = Int(output[r]) }
+        return PowerInfo(onAC: onAC, batteryPercent: percent)
+    }
+
+    @discardableResult public func runHelper(_ command: String) throws -> String {
+        guard ["on", "off", "status"].contains(command) else { throw LidAwakeError.invalidValue }
+        guard FileManager.default.isExecutableFile(atPath: Self.helperPath) else { throw LidAwakeError.helperUnavailable }
+        let process = Process(); let out = Pipe(); let err = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
         process.arguments = ["-n", Self.helperPath, command]
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        process.waitUntilExit()
-
-        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        guard process.terminationStatus == 0 else {
-            let message = error.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw LidAwakeError.commandFailed(message.isEmpty ? "Lid Awake command failed." : message)
-        }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        process.standardOutput = out; process.standardError = err
+        try process.run(); process.waitUntilExit()
+        let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else { throw LidAwakeError.commandFailed(stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    public static var supportDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Lid Awake", isDirectory: true)
-    }
-
-    public static var timerPIDFile: URL {
-        supportDirectory.appendingPathComponent("timer.pid")
-    }
-
-    public func writeTimerPID(_ pid: Int32) throws {
-        try FileManager.default.createDirectory(at: Self.supportDirectory, withIntermediateDirectories: true)
-        try String(pid).write(to: Self.timerPIDFile, atomically: true, encoding: .utf8)
-    }
-
-    public func clearTimerPID() {
-        try? FileManager.default.removeItem(at: Self.timerPIDFile)
-    }
-
-    public func cancelTimer() {
-        defer { clearTimerPID() }
-        guard let text = try? String(contentsOf: Self.timerPIDFile, encoding: .utf8),
-              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-              pid > 1,
-              isTimerProcess(pid: pid) else {
-            return
-        }
-        Darwin.kill(pid, SIGTERM)
-    }
-
-    private func isTimerProcess(pid: Int32) -> Bool {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", String(pid), "-o", "command="]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return false
-        }
-
-        guard process.terminationStatus == 0 else { return false }
-        let command = String(
-            data: output.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-        return command.contains(Self.cliPath) && command.contains("_timer")
+    private func run(_ path: String, _ arguments: [String]) -> String {
+        let process = Process(); let pipe = Pipe(); process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments; process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "" }; process.waitUntilExit()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
     }
 }
