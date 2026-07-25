@@ -1,0 +1,30 @@
+#!/bin/zsh
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  print -u2 "usage: lid-awake-helper on|off|status"
+  exit 64
+fi
+
+case "$1" in
+  on)
+    /usr/bin/pmset -a disablesleep 1
+    print "enabled"
+    ;;
+  off)
+    /usr/bin/pmset -a disablesleep 0
+    print "disabled"
+    ;;
+  status)
+    value="$(/usr/bin/pmset -g custom | /usr/bin/awk '$1 == "disablesleep" { print $2; exit }')"
+    if [[ "$value" == "1" ]]; then
+      print "enabled"
+    else
+      print "disabled"
+    fi
+    ;;
+  *)
+    print -u2 "unsupported command"
+    exit 64
+    ;;
+esac
