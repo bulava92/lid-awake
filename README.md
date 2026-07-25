@@ -2,6 +2,8 @@
 
 [Русская версия](README_RU.md)
 
+[Support the project](https://boosty.to/smd.monster/donate)
+
 Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid closed.
 
 > Never place the MacBook in a bag while Lid Awake is enabled. The computer may remain active and generate heat.
@@ -12,13 +14,14 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 - Temporary mode with 15-minute, 1-hour, 8-hour, and custom durations.
 - Configurable maximum temporary duration; unavailable presets are disabled.
 - Optional AC-only operation, battery cutoff, and thermal protection.
-- Optional screen lock and display blanking when the lid closes.
-- Optional lid-close sound with separate volume control.
+- Immediate power-source updates through IOKit, with a delayed recheck as a safeguard.
+- Independent lid-close actions: turn off displays, lock the session, and play a sound.
+- Separate lid-close sound volume control.
 - Native macOS notifications.
 - Russian and English interface.
 - Event-driven lid monitoring through IOKit, with a low-frequency fallback check.
 - Menu bar icons for enabled, temporary, power-waiting, low-battery, thermal, and disabled states.
-- Diagnostics, rotating logs, CLI, update checks, ad-hoc signing, and future Developer ID support.
+- Diagnostics, rotating logs, CLI, update checks, `.pkg` building, ad-hoc signing, and Developer ID support.
 
 ## Menu structure
 
@@ -27,9 +30,11 @@ The main menu contains the current mode, Enable, Disable, Temporary mode, Settin
 All preferences are inside **Settings**:
 
 - Only while connected to power
-- Lock screen when lid closes
-- Play sound when lid closes
-- Sound volume
+- When the lid closes…
+  - Turn off display
+  - Lock screen
+  - Play sound
+  - Sound volume
 - Thermal protection
 - Notifications
 - Launch at login
@@ -37,7 +42,22 @@ All preferences are inside **Settings**:
 - Maximum temporary duration
 - Language
 
+The lid-close actions are independent. Turning off the display does not explicitly lock the session, although macOS may still require authentication after display sleep according to the system Lock Screen settings.
+
 ## Installation
+
+### Installer package
+
+Build a local unsigned package:
+
+```bash
+zsh ./build-pkg.sh
+open build
+```
+
+The resulting package is written to `build/LidAwake-<version>-unsigned.pkg`.
+
+### Installation from source
 
 ```bash
 mkdir -p ~/Projects
@@ -59,9 +79,13 @@ The installer builds and tests the project, migrates old layouts, creates the ap
 
 ## Permissions
 
-Current versions use `CGSession` for screen locking and do **not** require Accessibility permission. Older builds used keyboard emulation as a fallback. If an old `lid-awake-agent` entry remains in **System Settings → Privacy & Security → Accessibility**, it can be removed.
+Current versions use `CGSession` for explicit screen locking and do **not** require Accessibility permission. Older builds used keyboard emulation as a fallback. If an old `lid-awake-agent` entry remains in **System Settings → Privacy & Security → Accessibility**, it can be removed.
 
 The background agent may request notification permission when notifications are enabled.
+
+## Power-source handling
+
+Lid Awake subscribes to native IOKit power-source notifications. Connecting or disconnecting the charger triggers an immediate policy reconciliation, followed by a delayed reconciliation as a safeguard. A periodic timer remains as a fallback.
 
 ## CLI
 
@@ -94,7 +118,7 @@ Logs rotate at approximately 1 MB.
 
 ## Versioning
 
-`VERSION` is the source of truth. `install.sh` generates `Sources/LidAwakeCore/BuildVersion.swift` before building and writes the same version into both application bundles.
+`VERSION` is the source of truth. `install.sh` and `build-pkg.sh` generate `Sources/LidAwakeCore/BuildVersion.swift` before building and write the same version into both application bundles.
 
 ## Signing
 
@@ -107,3 +131,7 @@ zsh ./uninstall.sh
 ```
 
 The uninstaller restores normal sleep behavior and removes the app, agent, LaunchAgents, helper, CLI, settings, and logs.
+
+## License
+
+[MIT](LICENSE)
