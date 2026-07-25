@@ -20,7 +20,7 @@ func usage() {
       lid-awake thermal-protection on|off
       lid-awake notifications on|off
       lid-awake launch-at-login on|off
-      lid-awake language automatic|russian|english
+      lid-awake language russian|english
       lid-awake diagnostics
       lid-awake log-path
       lid-awake version
@@ -37,7 +37,7 @@ func usage() {
       lid-awake thermal-protection on|off
       lid-awake notifications on|off
       lid-awake launch-at-login on|off
-      lid-awake language automatic|russian|english
+      lid-awake language russian|english
       lid-awake diagnostics
       lid-awake log-path
       lid-awake version
@@ -105,7 +105,7 @@ do {
         guard args.count == 2 else { throw LidAwakeError.invalidValue }
         let enabled = try boolValue(args[1]); try controller.update { $0.launchAtLogin = enabled }; print("launch-at-login: \(args[1])")
     case "language":
-        guard args.count == 2, let language = AppLanguage(rawValue: args[1]) else { throw LidAwakeError.invalidValue }
+        guard args.count == 2, ["russian", "english"].contains(args[1]), let language = AppLanguage(rawValue: args[1]) else { throw LidAwakeError.invalidValue }
         try L10n.setLanguage(language); _ = try controller.reconcile(); print("language: \(language.rawValue)")
     case "diagnostics": print(controller.diagnostics())
     case "log-path": print(LidAwakeController.agentLogFile.path)
