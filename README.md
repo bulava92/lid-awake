@@ -65,15 +65,15 @@ Lid Awake does not measure a temperature in degrees. It uses macOS `ProcessInfo.
 - `serious` — serious thermal pressure;
 - `critical` — critical thermal pressure.
 
-At `serious` or `critical`, Lid Awake disables the keep-awake helper, changes the state to Paused, and records the reason in the event log. It automatically resumes after the state returns to `nominal` or `fair`, provided the mode is still requested.
+At `serious` or `critical`, Lid Awake stops keeping the Mac active, changes the state to Paused, and records the reason in the event log. It automatically resumes after the state returns to `nominal` or `fair`, provided the mode is still requested.
 
 ## Lid-close actions
 
 The actions are independent:
 
-- **Turn off display** — requests display sleep without explicitly locking the session.
-- **Lock screen** — locks the user session through `CGSession`.
-- **Play sound** — plays the macOS `Glass.aiff` sound.
+- **Turn off display** — turns off the display without issuing a separate lock command.
+- **Lock screen** — locks the user session.
+- **Play sound** — plays a short system sound.
 - **Sound volume** — controls the signal volume relative to the current macOS system volume.
 
 With system volume at 50%, 100% in Lid Awake means the loudest signal the app can produce without changing the system volume. It does not bypass the system output level.
@@ -122,11 +122,11 @@ git pull
 zsh ./install.sh
 ```
 
-The installer builds and tests the project, creates the app and agent bundles, installs the LaunchAgent, helper, and CLI, restores `disablesleep` to its safe default, and verifies the installation.
+The installer builds and tests the project, installs the application and required background components, and then verifies the result.
 
 ## Permissions
 
-Explicit locking uses `CGSession` and does not require Accessibility permission. An old `lid-awake-agent` entry in Accessibility settings can be removed.
+Screen locking does not require Accessibility permission.
 
 The background agent may request notification permission.
 
@@ -149,7 +149,7 @@ lid-awake version
 
 ## Diagnostics and logs
 
-Diagnostics include version, architecture, helper state, active settings, power source, battery level, thermal state, lid state, and agent path.
+Diagnostics include version, architecture, component state, active settings, power source, battery level, thermal state, lid state, and agent path.
 
 - Agent log: `~/Library/Logs/Lid Awake/agent.log`
 - Previous agent log: `~/Library/Logs/Lid Awake/agent.log.1`
@@ -175,7 +175,7 @@ Without `SIGN_IDENTITY`, local ad-hoc signatures are used. Developer ID signing 
 zsh ./uninstall.sh
 ```
 
-The script restores normal sleep behavior and removes the app, agent, LaunchAgent, helper, CLI, settings, and logs.
+The script restores normal sleep behavior and removes the application, background components, CLI, settings, and logs.
 
 ## License
 
