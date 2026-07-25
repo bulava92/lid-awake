@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let russian = item("Русский", #selector(useRussian)); russian.state = L10n.selectedLanguage == .russian ? .on : .off; languageMenu.addItem(russian)
         let english = item("English", #selector(useEnglish)); english.state = L10n.selectedLanguage == .english ? .on : .off; languageMenu.addItem(english)
         settingsMenu.addItem(submenu(t("Language", "Язык"), languageMenu))
+        settingsMenu.addItem(.separator())
+        settingsMenu.addItem(item(t("Hide menu bar icon…", "Скрыть значок в строке меню…"), #selector(hideMenuBarIcon)))
 
         menu.addItem(submenu(t("Settings", "Настройки"), settingsMenu))
         menu.addItem(.separator())
@@ -191,6 +193,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setMaxDuration(_ sender: NSMenuItem) { perform { try controller.update { $0.maxDuration = sender.tag } } }
     @objc private func useRussian() { perform { try L10n.setLanguage(.russian); _ = try controller.reconcile() } }
     @objc private func useEnglish() { perform { try L10n.setLanguage(.english); _ = try controller.reconcile() } }
+
+    @objc private func hideMenuBarIcon() {
+        let alert = NSAlert()
+        alert.messageText = t("Hide menu bar icon?", "Скрыть значок в строке меню?")
+        alert.informativeText = t(
+            "The Lid Awake interface will close, but the background agent will continue working. Launch Lid Awake again from Applications to restore the icon.",
+            "Интерфейс Lid Awake закроется, но фоновый агент продолжит работать. Чтобы вернуть значок, снова запустите Lid Awake из папки «Программы»."
+        )
+        alert.addButton(withTitle: t("Hide", "Скрыть"))
+        alert.addButton(withTitle: t("Cancel", "Отмена"))
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSApp.terminate(nil)
+    }
 
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
     @objc private func openLogs() {
