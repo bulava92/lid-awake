@@ -2,154 +2,103 @@
 
 [Русская версия](README_RU.md)
 
-A macOS menu bar utility that keeps a MacBook working with the lid closed.
+Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid closed.
 
-> **Warning:** Never put the MacBook in a bag while Lid Awake is enabled. A closed MacBook can remain active and generate heat.
+> Never place the MacBook in a bag while Lid Awake is enabled. The computer may remain active and generate heat.
 
 ## Features
 
-- Enable closed-lid operation for 15 minutes, 1 hour, or 8 hours.
-- Automatically stop at the configured maximum duration.
-- Optionally work only while connected to external power.
-- Pause automatically at the selected battery level.
-- Pause automatically when macOS reports a serious or critical thermal state.
-- Resume after safe conditions return, provided the timer has not expired.
-- Show remaining time, power source, battery level, and thermal state.
-- Notify when the effective state changes.
-- Start the menu bar app and policy agent at login.
+- Permanent mode until manually disabled.
+- Temporary mode with 15-minute, 1-hour, 8-hour, and custom durations.
+- Configurable maximum temporary duration; unavailable presets are disabled.
+- Optional AC-only operation, battery cutoff, and thermal protection.
+- Optional screen lock and display blanking when the lid closes.
+- Optional lid-close sound with separate volume control.
+- Native macOS notifications.
 - Russian and English interface.
-- Select Russian on first install when macOS uses Russian; otherwise select English.
-- Switch manually between **Русский** and **English** from the menu.
-- Diagnostics, event history, and agent logs.
-- Manual update checks through GitHub Releases.
-- Menu bar and CLI control.
-- Root-owned helper restricted to `on`, `off`, and `status`.
-- Restore normal sleep behavior after reboot and during uninstall.
+- Event-driven lid monitoring through IOKit, with a low-frequency fallback check.
+- Menu bar icons for enabled, temporary, power-waiting, low-battery, thermal, and disabled states.
+- Diagnostics, rotating logs, CLI, update checks, ad-hoc signing, and future Developer ID support.
 
-## Requirements
+## Menu structure
 
-- macOS 13 or newer
-- Xcode Command Line Tools
-- An administrator account for installation
+The main menu contains the current mode, Enable, Disable, Temporary mode, Settings, Diagnostics, Open log, Check for updates, and Quit.
 
-## Install
+All preferences are inside **Settings**:
+
+- Only while connected to power
+- Lock screen when lid closes
+- Play sound when lid closes
+- Sound volume
+- Thermal protection
+- Notifications
+- Launch at login
+- Disable at battery level
+- Maximum temporary duration
+- Language
+
+## Installation
 
 ```bash
+mkdir -p ~/Projects
+cd ~/Projects
 git clone https://github.com/bulava92/lid-awake.git
 cd lid-awake
 zsh ./install.sh
 ```
 
-For an existing clone:
+For an existing checkout:
 
 ```bash
+cd ~/Projects/lid-awake
 git pull
 zsh ./install.sh
 ```
 
-The installer asks for the administrator password. Normal menu bar and CLI use does not require entering it again.
+The installer builds and tests the project, migrates old layouts, creates the application and agent bundles, applies ad-hoc signatures when no Developer ID is supplied, installs LaunchAgents, resets `disablesleep` to the safe default, and verifies the installation.
 
-The application icon source is stored as `Assets/AppIcon.png`. During installation, `sips` and `iconutil` generate `AppIcon.icns` and bundle it into the application.
+## Permissions
 
-## Defaults
+Current versions use `CGSession` for screen locking and do **not** require Accessibility permission. Older builds used keyboard emulation as a fallback. If an old `lid-awake-agent` entry remains in **System Settings → Privacy & Security → Accessibility**, it can be removed.
 
-- Closed-lid operation: disabled
-- External power required: yes
-- Battery cutoff: 20%
-- Maximum duration: 8 hours
-- Thermal protection: enabled
-- Notifications: enabled
-- Launch at login: enabled
-- Language: Russian for Russian macOS, English otherwise
-
-## Language
-
-At first installation, the installer writes one of two language choices based on macOS:
-
-- `russian`
-- `english`
-
-The menu contains only **Русский** and **English**. The selected value is retained across upgrades.
-
-```bash
-lid-awake language russian
-lid-awake language english
-```
+The background agent may request notification permission when notifications are enabled.
 
 ## CLI
 
 ```bash
 lid-awake on
-lid-awake on 3600
-lid-awake for 900
 lid-awake off
+lid-awake for 3600
+lid-awake cancel-timer
 lid-awake status
 lid-awake settings
-lid-awake ac-only on
-lid-awake ac-only off
-lid-awake battery-limit 20
-lid-awake max-duration 28800
-lid-awake thermal-protection on
-lid-awake notifications on
-lid-awake launch-at-login on
 lid-awake diagnostics
-lid-awake log-path
 lid-awake version
 ```
 
-`on` without a duration uses the configured maximum duration. The background agent checks power, battery, thermal state, and expiry every 30 seconds.
+The requested temporary duration must not exceed the configured maximum.
 
-## Diagnostics and logs
+## Logs and diagnostics
 
-The menu provides:
+- Agent log: `~/Library/Logs/Lid Awake/agent.log`
+- Previous agent log: `~/Library/Logs/Lid Awake/agent.log.1`
+- Event log: `~/Library/Application Support/Lid Awake/events.log`
+- Previous event log: `~/Library/Application Support/Lid Awake/events.log.1`
+- Last detected lid close: `~/Library/Application Support/Lid Awake/last-lid-close.txt`
 
-- **Open Diagnostics…**
-- **Open Logs**
-- **Check for Updates…**
+Logs rotate at approximately 1 MB.
 
-Local state and logs are stored in:
+## Updates
 
-```text
-~/Library/Application Support/Lid Awake/
-~/Library/Logs/Lid Awake/agent.log
-```
+**Check for updates…** reads the latest GitHub release. When a newer release exists, the dialog can open its release page.
 
-## Architecture
+## Versioning
 
-- `LidAwakeApp` — localized menu bar interface.
-- `lid-awake` — CLI and settings editor.
-- `lid-awake-agent` — unprivileged policy agent.
-- `lid-awake-helper` — root-owned fixed-command helper controlling `pmset disablesleep`.
-- `su.xyz.LidAwake.reset` — boot-time safety reset restoring `disablesleep 0`.
+`VERSION` is the source of truth. `install.sh` generates `Sources/LidAwakeCore/BuildVersion.swift` before building and writes the same version into both application bundles.
 
-## Manual validation
+## Signing
 
-This repository intentionally has no GitHub Actions workflow. Validate on a Mac:
-
-```bash
-swift build -c release
-swift test
-zsh -n install.sh
-zsh -n uninstall.sh
-zsh -n scripts/lid-awake-helper
-zsh -n scripts/notarize-app.sh
-```
-
-## Signing and notarization
-
-Unsigned installation remains the default. The repository is prepared for future Developer ID signing and notarization.
-
-```bash
-SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" zsh ./install.sh
-```
-
-After configuring a `notarytool` keychain profile:
-
-```bash
-NOTARY_PROFILE="lid-awake-notary" zsh ./scripts/notarize-app.sh
-```
-
-See [SIGNING.md](SIGNING.md).
+Without `SIGN_IDENTITY`, both bundles receive local ad-hoc signatures. Developer ID signing and notarization are documented in [SIGNING.md](SIGNING.md).
 
 ## Uninstall
 
@@ -157,8 +106,4 @@ See [SIGNING.md](SIGNING.md).
 zsh ./uninstall.sh
 ```
 
-Uninstalling stops both user agents, restores normal sleep behavior, and removes settings, logs, binaries, and the application.
-
-## License
-
-MIT
+The uninstaller restores normal sleep behavior and removes the app, agent, LaunchAgents, helper, CLI, settings, and logs.
