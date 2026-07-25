@@ -81,13 +81,15 @@ while true {
         let status = try controller.reconcile()
         let lidClosed = readLidClosedRobustly()
         let settings = controller.loadSettings()
+        let justClosed = previousLidClosed != true && lidClosed == true
 
-        if settings.lockOnLidClose,
-           settings.requested,
-           status.state == .enabled,
-           previousLidClosed != true,
-           lidClosed == true {
-            _ = lockAndBlankDisplays()
+        if settings.requested, status.state == .enabled, justClosed {
+            if settings.soundOnLidClose {
+                _ = controller.playLidCloseSound(volumePercent: settings.lidCloseSoundVolume)
+            }
+            if settings.lockOnLidClose {
+                _ = lockAndBlankDisplays()
+            }
         }
 
         if let lidClosed { previousLidClosed = lidClosed }
