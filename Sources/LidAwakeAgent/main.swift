@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import LidAwakeCore
 
 let controller = LidAwakeController()
