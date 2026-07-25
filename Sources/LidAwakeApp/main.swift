@@ -64,11 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         maxItem.submenu = maxMenu; menu.addItem(maxItem)
 
         let languageMenu = NSMenu()
-        let languageOptions: [(AppLanguage, String)] = [
-            (.automatic, t("Automatic", "Автоматически")),
-            (.russian, "Русский"),
-            (.english, "English")
-        ]
+        let languageOptions: [(AppLanguage, String)] = [(.russian, "Русский"), (.english, "English")]
         for (index, option) in languageOptions.enumerated() {
             let item = NSMenuItem(title: option.1, action: #selector(setLanguage(_:)), keyEquivalent: "")
             item.target = self; item.tag = index; item.state = L10n.selectedLanguage == option.0 ? .on : .off
@@ -126,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try controller.update { $0.batteryLimit = sender.tag } } }
     @objc private func setMaxDuration(_ sender: NSMenuItem) { perform { try controller.update { $0.maxDuration = sender.tag; if $0.requested { $0.expiresAt = Date().addingTimeInterval(TimeInterval(sender.tag)) } } } }
     @objc private func setLanguage(_ sender: NSMenuItem) {
-        let options: [AppLanguage] = [.automatic, .russian, .english]
+        let options: [AppLanguage] = [.russian, .english]
         guard options.indices.contains(sender.tag) else { return }
         perform { try L10n.setLanguage(options[sender.tag]); _ = try controller.reconcile() }
     }
