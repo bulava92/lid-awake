@@ -27,16 +27,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let settings = controller.loadSettings()
         let state = status?.state ?? .unknown
 
-        addLabel(t("Status: ", "Состояние: ") + localizedState(state))
+        if let remaining = status?.remainingSeconds, settings.requested, settings.expiresAt != nil {
+            addLabel(t("Temporary mode: active, \(formatRemaining(remaining)) remaining", "Временный режим: активен, осталось \(formatRemaining(remaining))"))
+        } else {
+            addLabel(t("Status: ", "Состояние: ") + localizedState(state))
+            if state == .blocked, let reason = status?.reason { addLabel(reason) }
+        }
+
         if let status {
-            addLabel(status.reason)
             let power = status.power
             let source = power.onAC ? t("Adapter", "Адаптер") : t("Battery", "Батарея")
             addLabel(t("Power: ", "Питание: ") + source + (power.batteryPercent.map { ", \($0)%" } ?? ""))
             addLabel(t("Thermal state: ", "Температурное состояние: ") + localizedThermal(status.thermal))
-        }
-        if let remaining = status?.remainingSeconds, settings.requested {
-            addLabel(t("Temporary mode remaining: ", "Во временном режиме осталось: ") + formatDuration(remaining))
         }
         menu.addItem(.separator())
 
@@ -107,9 +109,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addItem(t("Diagnostics…", "Диагностика…"), #selector(showDiagnostics))
         addItem(t("Open log", "Открыть журнал"), #selector(openLogs))
         addItem(t("Check for updates…", "Проверить обновления…"), #selector(checkUpdates))
-        addItem(t("Open project page", "Открыть страницу проекта"), #selector(openProject))
         menu.addItem(.separator())
-        addItem(t("Quit", "Выход"), #selector(quit))
+        let quitItem = addItem(t("Quit", "Выход"), #selector(quit))
+        quitItem.keyEquivalent = "q"
+        quitItem.keyEquivalentModifierMask = [.command]
 
         let symbol: String
         switch state {
@@ -139,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func formatDuration(_ seconds: Int) -> String {
+    private func formatRemaining(_ seconds: Int) -> String {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         if hours > 0 { return t("\(hours)h \(minutes)m", "\(hours) ч \(minutes) мин") }
@@ -219,8 +222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSWorkspace.shared.open(LidAwakeController.agentLogFile)
     }
-
-    @objc private func openProject() { NSWorkspace.shared.open(URL(string: "https://github.com/bulava92/lid-awake")!) }
 
     @objc private func checkUpdates() {
         guard let url = URL(string: "https://api.github.com/repos/bulava92/lid-awake/releases/latest") else { return }
