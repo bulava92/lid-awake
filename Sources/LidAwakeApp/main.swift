@@ -28,8 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let state = status?.state ?? .unknown
 
         addLabel(t("Status: ", "Состояние: ") + localizedState(state))
-        if let status { addLabel(status.reason) }
-        if let power = status?.power {
+        if let status {
+            addLabel(status.reason)
+            let power = status.power
             let source = power.onAC ? t("Adapter", "Адаптер") : t("Battery", "Батарея")
             addLabel(t("Power: ", "Питание: ") + source + (power.batteryPercent.map { ", \($0)%" } ?? ""))
             addLabel(t("Thermal state: ", "Температурное состояние: ") + localizedThermal(status.thermal))
