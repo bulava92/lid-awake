@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="1.2.1"
+VERSION="$(tr -d '[:space:]' < VERSION)"
+BUILD_NUMBER="$(print -r -- "$VERSION" | tr -cd '0-9')"
 APP_NAME="Lid Awake"
 APP_PATH="/Applications/${APP_NAME}.app"
 HELPER_PATH="/usr/local/libexec/lid-awake-helper"
@@ -29,8 +30,16 @@ OLD_AGENT_PATH="/usr/local/libexec/lid-awake-agent"
 
 [[ -f "$ICON_SOURCE" ]] || { print -u2 "Missing app icon: $ICON_SOURCE"; exit 66; }
 [[ -f "$ENTITLEMENTS" ]] || { print -u2 "Missing entitlements: $ENTITLEMENTS"; exit 66; }
+[[ -n "$VERSION" ]] || { print -u2 "VERSION is empty"; exit 66; }
+
+cat > Sources/LidAwakeCore/BuildVersion.swift <<EOF
+public enum BuildVersion {
+    public static let current = "${VERSION}"
+}
+EOF
 
 swift build -c release
+swift test
 rm -rf build
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources" "$AGENT_CONTENTS/MacOS" "$AGENT_CONTENTS/Resources" "$ICONSET_PATH"
 cp ".build/release/LidAwakeApp" "$APP_CONTENTS/MacOS/LidAwakeApp"
@@ -57,7 +66,7 @@ cat > "$APP_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleName</key><string>Lid Awake</string>
 <key>CFBundleDisplayName</key><string>Lid Awake</string>
 <key>CFBundleIdentifier</key><string>su.xyz.LidAwake</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleExecutable</key><string>LidAwakeApp</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -73,7 +82,7 @@ cat > "$AGENT_CONTENTS/Info.plist" <<PLIST
 <key>CFBundleName</key><string>Lid Awake Agent</string>
 <key>CFBundleDisplayName</key><string>Lid Awake Agent</string>
 <key>CFBundleIdentifier</key><string>su.xyz.LidAwake.Agent</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleExecutable</key><string>lid-awake-agent</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -105,11 +114,22 @@ cat > build/reset.plist <<'PLIST'
 </dict></plist>
 PLIST
 
+# Stop and remove every known previous installation layout.
+launchctl bootout "gui/${USER_ID}/${POLICY_LABEL}" 2>/dev/null || true
+launchctl bootout "gui/${USER_ID}/${APP_LABEL}" 2>/dev/null || true
+launchctl bootout "gui/${USER_ID}/su.xyz.LidAwakeAgent" 2>/dev/null || true
+pkill -x LidAwakeApp 2>/dev/null || true
+pkill -x lid-awake-agent 2>/dev/null || true
+rm -f "$USER_AGENT_DIR/su.xyz.LidAwakeAgent.plist"
+sudo rm -f "$OLD_AGENT_PATH" /usr/local/libexec/LidAwakeAgent
+rm -rf "$SUPPORT_DIR/LidAwakeAgent.app" "$SUPPORT_DIR/Lid Awake Agent.app"
+# Accessibility is no longer required; remove the old bundle permission record.
+tccutil reset Accessibility su.xyz.LidAwake.Agent >/dev/null 2>&1 || true
+
 sudo install -d -m 755 /usr/local/bin /usr/local/libexec /Library/LaunchDaemons
 sudo install -o root -g wheel -m 755 scripts/lid-awake-helper "$HELPER_PATH"
 sudo install -o root -g wheel -m 755 .build/release/lid-awake "$CLI_PATH"
 sudo install -o root -g wheel -m 644 build/reset.plist "$RESET_PLIST"
-sudo rm -f "$OLD_AGENT_PATH"
 
 cat > build/lid-awake.sudoers <<EOF
 %admin ALL=(root) NOPASSWD: ${HELPER_PATH} on, ${HELPER_PATH} off, ${HELPER_PATH} status
@@ -125,16 +145,11 @@ sudo ditto "build/${APP_NAME}.app" "$APP_PATH"
 sudo chown -R root:wheel "$APP_PATH"
 
 mkdir -p "$USER_AGENT_DIR" "$HOME/Library/Logs/Lid Awake" "$SUPPORT_DIR"
-rm -rf "$AGENT_APP_PATH"
 ditto "$AGENT_BUILD_PATH" "$AGENT_APP_PATH"
 chmod -R u+rwX,go+rX "$AGENT_APP_PATH"
 
 if [[ ! -f "$LANGUAGE_FILE" ]]; then
-  if defaults read -g AppleLanguages 2>/dev/null | grep -Eiq '(^|[^a-z])ru([^a-z]|$)'; then
-    print -r -- "russian" > "$LANGUAGE_FILE"
-  else
-    print -r -- "english" > "$LANGUAGE_FILE"
-  fi
+  if defaults read -g AppleLanguages 2>/dev/null | grep -Eiq '(^|[^a-z])ru([^a-z]|$)'; then print -r -- "russian" > "$LANGUAGE_FILE"; else print -r -- "english" > "$LANGUAGE_FILE"; fi
 fi
 
 cat > "$USER_AGENT_DIR/${POLICY_LABEL}.plist" <<PLIST
@@ -160,11 +175,25 @@ cat > "$USER_AGENT_DIR/${APP_LABEL}.plist" <<PLIST
 </dict></plist>
 PLIST
 
-launchctl bootout "gui/${USER_ID}/${POLICY_LABEL}" 2>/dev/null || true
-launchctl bootout "gui/${USER_ID}/${APP_LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${POLICY_LABEL}.plist"
 launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${APP_LABEL}.plist"
+launchctl enable "gui/${USER_ID}/${POLICY_LABEL}"
+launchctl enable "gui/${USER_ID}/${APP_LABEL}"
 launchctl kickstart -k "gui/${USER_ID}/${POLICY_LABEL}"
 launchctl kickstart -k "gui/${USER_ID}/${APP_LABEL}"
+sleep 1
 
-printf '\nInstalled Lid Awake %s with bundled, ad-hoc signed background agent.\n' "$VERSION"
+# Installation self-checks.
+[[ -x "$HELPER_PATH" ]] || { print -u2 "Helper verification failed"; exit 70; }
+[[ -x "$CLI_PATH" ]] || { print -u2 "CLI verification failed"; exit 70; }
+[[ -x "$AGENT_EXECUTABLE" ]] || { print -u2 "Agent verification failed"; exit 70; }
+[[ -f "$APP_PATH/Contents/Resources/AppIcon.icns" ]] || { print -u2 "App icon verification failed"; exit 70; }
+[[ -f "$AGENT_APP_PATH/Contents/Resources/AppIcon.icns" ]] || { print -u2 "Agent icon verification failed"; exit 70; }
+codesign --verify --deep --strict "$APP_PATH"
+codesign --verify --deep --strict "$AGENT_APP_PATH"
+launchctl print "gui/${USER_ID}/${POLICY_LABEL}" >/dev/null
+launchctl print "gui/${USER_ID}/${APP_LABEL}" >/dev/null
+"$CLI_PATH" status >/dev/null
+[[ "$(sudo "$HELPER_PATH" status)" == "0" ]] || { print -u2 "Safe pmset reset verification failed"; exit 70; }
+
+printf '\nInstalled and verified Lid Awake %s. Closed-lid mode is disabled by default.\n' "$VERSION"
