@@ -12,13 +12,36 @@ USER_AGENT_DIR="$HOME/Library/LaunchAgents"
 POLICY_LABEL="su.xyz.LidAwake.agent"
 APP_LABEL="su.xyz.LidAwake.app"
 USER_ID="$(id -u)"
+ICON_SOURCE="Assets/AppIcon.png"
+ICONSET_PATH="build/AppIcon.iconset"
+ICON_PATH="build/AppIcon.icns"
+APP_CONTENTS="build/${APP_NAME}.app/Contents"
+
+if [[ ! -f "$ICON_SOURCE" ]]; then
+  print -u2 "Missing app icon: $ICON_SOURCE"
+  exit 66
+fi
 
 swift build -c release
 rm -rf build
-mkdir -p "build/${APP_NAME}.app/Contents/MacOS"
-cp ".build/release/LidAwakeApp" "build/${APP_NAME}.app/Contents/MacOS/LidAwakeApp"
+mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources" "$ICONSET_PATH"
+cp ".build/release/LidAwakeApp" "$APP_CONTENTS/MacOS/LidAwakeApp"
 
-cat > "build/${APP_NAME}.app/Contents/Info.plist" <<'PLIST'
+# Build a standard macOS icon set from the 1024×1024 PNG source.
+sips -z 16 16     "$ICON_SOURCE" --out "$ICONSET_PATH/icon_16x16.png" >/dev/null
+sips -z 32 32     "$ICON_SOURCE" --out "$ICONSET_PATH/icon_16x16@2x.png" >/dev/null
+sips -z 32 32     "$ICON_SOURCE" --out "$ICONSET_PATH/icon_32x32.png" >/dev/null
+sips -z 64 64     "$ICON_SOURCE" --out "$ICONSET_PATH/icon_32x32@2x.png" >/dev/null
+sips -z 128 128   "$ICON_SOURCE" --out "$ICONSET_PATH/icon_128x128.png" >/dev/null
+sips -z 256 256   "$ICON_SOURCE" --out "$ICONSET_PATH/icon_128x128@2x.png" >/dev/null
+sips -z 256 256   "$ICON_SOURCE" --out "$ICONSET_PATH/icon_256x256.png" >/dev/null
+sips -z 512 512   "$ICON_SOURCE" --out "$ICONSET_PATH/icon_256x256@2x.png" >/dev/null
+sips -z 512 512   "$ICON_SOURCE" --out "$ICONSET_PATH/icon_512x512.png" >/dev/null
+sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET_PATH/icon_512x512@2x.png" >/dev/null
+iconutil -c icns "$ICONSET_PATH" -o "$ICON_PATH"
+cp "$ICON_PATH" "$APP_CONTENTS/Resources/AppIcon.icns"
+
+cat > "$APP_CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -28,6 +51,7 @@ cat > "build/${APP_NAME}.app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0.0</string>
 <key>CFBundleExecutable</key><string>LidAwakeApp</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
@@ -92,4 +116,4 @@ launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${APP_LABEL}.plist"
 launchctl kickstart -k "gui/${USER_ID}/${POLICY_LABEL}"
 launchctl kickstart -k "gui/${USER_ID}/${APP_LABEL}"
 
-printf '\nInstalled Lid Awake 1.0.0. It starts at login; closed-lid mode is disabled by default.\n'
+printf '\nInstalled Lid Awake 1.0.0 with AppIcon. It starts at login; closed-lid mode is disabled by default.\n'
