@@ -89,12 +89,37 @@ public struct LidAwakeController {
     }
 
     public func cancelTimer() {
+        defer { clearTimerPID() }
         guard let text = try? String(contentsOf: Self.timerPIDFile, encoding: .utf8),
-              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            clearTimerPID()
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 1,
+              isTimerProcess(pid: pid) else {
             return
         }
         Darwin.kill(pid, SIGTERM)
-        clearTimerPID()
+    }
+
+    private func isTimerProcess(pid: Int32) -> Bool {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", String(pid), "-o", "command="]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return false
+        }
+
+        guard process.terminationStatus == 0 else { return false }
+        let command = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        return command.contains(Self.cliPath) && command.contains("_timer")
     }
 }
