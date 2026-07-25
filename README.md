@@ -1,57 +1,86 @@
 # Lid Awake
 
-A macOS menu bar utility that keeps your MacBook running with the lid closed.
+A macOS menu bar utility that keeps a MacBook working with the lid closed.
 
 ## Features
 
-- Enable or disable closed-lid operation from the menu bar.
-- CLI control: `on`, `off`, `status`.
-- Temporary mode with an automatic timeout.
-- Fixed-command privileged helper; no arbitrary shell execution.
-- Automatically restores normal sleep behavior after reboot and during uninstall.
+- Enable closed-lid operation for 15 minutes, 1 hour, or 8 hours.
+- Automatically stop at the configured maximum duration.
+- Optionally work only while connected to external power.
+- Automatically disable at a selected battery level.
+- Start the menu bar app and policy agent when the user signs in.
+- Control everything from the menu bar or CLI.
+- Restore normal sleep behavior after reboot and during uninstall.
+- Use a root-owned helper restricted to `on`, `off`, and `status`; arbitrary commands are not accepted.
 
-> **Warning:** A closed MacBook can continue running and generating heat. Never place it in a bag while Lid Awake is enabled.
+> **Warning:** Never put the MacBook in a bag while Lid Awake is enabled. A closed MacBook can remain active and generate heat.
 
 ## Requirements
 
 - macOS 13 or newer
 - Xcode Command Line Tools
+- An administrator account for installation
 
 ## Install
 
 ```bash
- git clone https://github.com/bulava92/lid-awake.git
- cd lid-awake
- zsh ./install.sh
+git clone https://github.com/bulava92/lid-awake.git
+cd lid-awake
+zsh ./install.sh
 ```
 
-The installer asks for an administrator password once. Normal use does not require entering it again.
+The installer asks for the administrator password. Normal menu bar and CLI use does not require entering it again.
 
-Installed components:
+## Defaults
 
-```text
-/Applications/Lid Awake.app
-/usr/local/bin/lid-awake
-/usr/local/libexec/lid-awake-helper
-/Library/LaunchDaemons/su.xyz.LidAwake.reset.plist
-/etc/sudoers.d/lid-awake
-```
+- Closed-lid operation: disabled
+- External power required: yes
+- Battery cutoff: 20%
+- Maximum duration: 8 hours
+- Launch at login: enabled
 
 ## CLI
 
 ```bash
 lid-awake on
+lid-awake on 3600
+lid-awake for 900
 lid-awake off
 lid-awake status
-lid-awake for 900
-lid-awake cancel-timer
+lid-awake settings
+lid-awake ac-only on
+lid-awake ac-only off
+lid-awake battery-limit 20
+lid-awake max-duration 28800
 ```
 
-`lid-awake for 900` enables the mode for 15 minutes and then restores normal sleep behavior.
+`on` without a duration uses the configured maximum duration. The background agent checks power, battery, and expiry every 30 seconds.
 
-## How it works
+## Architecture
 
-The application calls a root-owned helper that accepts only three commands: `on`, `off`, and `status`. The helper controls the macOS `pmset disablesleep` setting. A one-shot LaunchDaemon restores `disablesleep 0` during every boot.
+- `LidAwakeApp` — menu bar interface.
+- `lid-awake` — command-line interface and settings editor.
+- `lid-awake-agent` — unprivileged policy agent running in the user session.
+- `lid-awake-helper` — root-owned fixed-command helper controlling `pmset disablesleep`.
+- `su.xyz.LidAwake.reset` — boot-time safety reset that restores `disablesleep 0`.
+
+Settings and the latest status are stored locally in:
+
+```text
+~/Library/Application Support/Lid Awake/
+```
+
+## Manual validation
+
+This repository intentionally has no GitHub Actions workflow. Validate on a Mac:
+
+```bash
+swift build -c release
+swift test
+zsh -n install.sh
+zsh -n uninstall.sh
+zsh -n scripts/lid-awake-helper
+```
 
 ## Uninstall
 
@@ -59,7 +88,7 @@ The application calls a root-owned helper that accepts only three commands: `on`
 zsh ./uninstall.sh
 ```
 
-Uninstalling always restores normal sleep behavior first.
+Uninstalling stops both user agents, restores normal sleep behavior, and removes settings, logs, binaries, and the application.
 
 ## License
 
