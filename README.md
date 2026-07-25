@@ -80,6 +80,22 @@ With system volume at 50%, 100% in Lid Awake means the loudest signal the app ca
 
 macOS may require a password or Touch ID after display sleep according to **System Settings → Lock Screen**. Display sleep may therefore look like an explicit lock even when Lock screen is disabled in Lid Awake.
 
+## VPN clients and lid-close events
+
+Lid Awake prevents the Mac from entering sleep, but third-party applications may still react to the lid-close event itself.
+
+For example, Pritunl Client may restart the VPN connection when the lid is closed or opened, even while the Mac remains active.
+
+To disable this behavior:
+
+1. Open **Pritunl Client → Settings → Advanced Settings**.
+2. Enable **Disable device wake watch**.
+3. Restart Pritunl Client.
+
+The VPN connection should then remain active while using Lid Awake.
+
+> Important: this setting applies only to Pritunl Client. Lid Awake does not modify VPN-client settings or the configuration of other third-party applications.
+
 ## Notifications
 
 Notifications are sent for meaningful state transitions, such as waiting for power, a safety suspension, or automatic recovery. Disabling notifications does not affect the keep-awake behavior.
