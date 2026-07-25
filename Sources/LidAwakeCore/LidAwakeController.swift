@@ -1,10 +1,36 @@
 import Foundation
+import Darwin
 
 public enum LidAwakeState: String, Codable { case enabled, disabled, blocked, unknown }
 public enum ThermalLevel: String, Codable { case nominal, fair, serious, critical, unknown }
+public enum AppLanguage: String, Codable, CaseIterable { case automatic, russian, english }
 
 public enum L10n {
-    public static var isRussian: Bool { Locale.preferredLanguages.first?.lowercased().hasPrefix("ru") == true }
+    public static var languageFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Lid Awake/language.txt")
+    }
+
+    public static var selectedLanguage: AppLanguage {
+        guard let value = try? String(contentsOf: languageFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let language = AppLanguage(rawValue: value) else { return .automatic }
+        return language
+    }
+
+    public static var isRussian: Bool {
+        switch selectedLanguage {
+        case .russian: return true
+        case .english: return false
+        case .automatic: return Locale.preferredLanguages.first?.lowercased().hasPrefix("ru") == true
+        }
+    }
+
+    public static func setLanguage(_ language: AppLanguage) throws {
+        try FileManager.default.createDirectory(at: languageFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try language.rawValue.write(to: languageFile, atomically: true, encoding: .utf8)
+    }
+
     public static func text(_ en: String, _ ru: String) -> String { isRussian ? ru : en }
 }
 
@@ -177,6 +203,7 @@ public struct LidAwakeController {
         architecture: \(run("/usr/bin/uname", ["-m"]).trimmingCharacters(in: .whitespacesAndNewlines))
         helper: \(FileManager.default.isExecutableFile(atPath: Self.helperPath) ? "installed" : "missing")
         pmset: \((try? runHelper("status")) ?? "unavailable")
+        language: \(L10n.selectedLanguage.rawValue)
         requested: \(settings.requested)
         state: \(status?.state.rawValue ?? "unknown")
         reason: \(status?.reason ?? "unknown")
