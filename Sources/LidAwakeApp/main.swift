@@ -180,6 +180,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildMenu()
     }
 
+    private func updateSettings(_ mutate: (inout LidAwakeSettings) -> Void) throws {
+        var settings = controller.loadSettings()
+        mutate(&settings)
+        settings.batteryLimit = min(max(settings.batteryLimit, 0), 100)
+        settings.maxDuration = max(settings.maxDuration, 60)
+        try controller.saveSettings(settings)
+        _ = try controller.reconcile()
+    }
+
     private func showAlert(title: String, message: String, style: NSAlert.Style = .informational) {
         let alert = NSAlert()
         alert.alertStyle = style
@@ -191,16 +200,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func enablePermanent() { perform { try controller.requestEnabled() } }
     @objc private func enableTemporary(_ sender: NSMenuItem) { perform { try controller.requestTemporary(duration: sender.tag) } }
     @objc private func disable() { perform { try controller.requestDisabled() } }
-    @objc private func toggleAC() { perform { try controller.update { $0.acOnly.toggle() } } }
-    @objc private func toggleLockOnClose() { perform { try controller.update { $0.lockOnLidClose.toggle() } } }
-    @objc private func toggleThermal() { perform { try controller.update { $0.thermalProtection.toggle() } } }
-    @objc private func toggleNotifications() { perform { try controller.update { $0.notifications.toggle() } } }
+    @objc private func toggleAC() { perform { try updateSettings { $0.acOnly.toggle() } } }
+    @objc private func toggleLockOnClose() { perform { try updateSettings { $0.lockOnLidClose.toggle() } } }
+    @objc private func toggleThermal() { perform { try updateSettings { $0.thermalProtection.toggle() } } }
+    @objc private func toggleNotifications() { perform { try updateSettings { $0.notifications.toggle() } } }
     @objc private func toggleLogin() { perform { try controller.update { $0.launchAtLogin.toggle() } } }
-    @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try controller.update { $0.batteryLimit = sender.tag } } }
+    @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try updateSettings { $0.batteryLimit = sender.tag } } }
 
     @objc private func setMaxDuration(_ sender: NSMenuItem) {
         perform {
-            try controller.update {
+            try updateSettings {
                 $0.maxDuration = sender.tag
                 if $0.requested, $0.expiresAt != nil {
                     $0.expiresAt = Date().addingTimeInterval(TimeInterval(sender.tag))
