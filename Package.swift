@@ -6,22 +6,18 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .executable(name: "lid-awake", targets: ["LidAwakeCLI"]),
+        .executable(name: "lid-awake-agent", targets: ["LidAwakeAgent"]),
         .executable(name: "LidAwakeApp", targets: ["LidAwakeApp"])
     ],
     targets: [
         .target(name: "LidAwakeCore"),
-        .executableTarget(
-            name: "LidAwakeCLI",
-            dependencies: ["LidAwakeCore"]
-        ),
+        .executableTarget(name: "LidAwakeCLI", dependencies: ["LidAwakeCore"]),
+        .executableTarget(name: "LidAwakeAgent", dependencies: ["LidAwakeCore"]),
         .executableTarget(
             name: "LidAwakeApp",
             dependencies: ["LidAwakeCore"],
             linkerSettings: [.linkedFramework("AppKit")]
         ),
-        .testTarget(
-            name: "LidAwakeCoreTests",
-            dependencies: ["LidAwakeCore"]
-        )
+        .testTarget(name: "LidAwakeCoreTests", dependencies: ["LidAwakeCore"])
     ]
 )
