@@ -22,6 +22,7 @@ func runSelfTests() throws {
     try expect(defaults.thermalProtection == true, "thermal protection must be enabled by default")
     try expect(defaults.notifications == true, "notifications must be enabled by default")
     try expect(defaults.launchAtLogin == true, "launch at login must be enabled by default")
+    try expect(defaults.displaySleepOnLidClose == false, "display sleep must be disabled by default")
     try expect(defaults.lockOnLidClose == false, "screen lock must be disabled by default")
     try expect(defaults.soundOnLidClose == false, "lid-close sound must be disabled by default")
     try expect(defaults.lidCloseSoundVolume == 50, "default sound volume must be 50%")
@@ -111,6 +112,7 @@ func runSelfTests() throws {
     try expect(legacy.thermalProtection == true, "legacy settings must enable thermal protection")
     try expect(legacy.notifications == true, "legacy settings must enable notifications")
     try expect(legacy.launchAtLogin == true, "legacy settings must enable launch at login")
+    try expect(legacy.displaySleepOnLidClose == false, "legacy settings must disable display sleep")
     try expect(legacy.lockOnLidClose == false, "legacy settings must disable screen locking")
     try expect(legacy.soundOnLidClose == false, "legacy settings must disable lid-close sound")
     try expect(legacy.lidCloseSoundVolume == 50, "legacy settings must use 50% sound volume")
@@ -123,6 +125,7 @@ func runSelfTests() throws {
         thermalProtection: false,
         notifications: false,
         launchAtLogin: false,
+        displaySleepOnLidClose: true,
         lockOnLidClose: true,
         soundOnLidClose: true,
         lidCloseSoundVolume: 75
