@@ -45,81 +45,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let temporaryMenu = NSMenu()
         for pair in [(900, t("15 minutes", "15 минут")), (3600, t("1 hour", "1 час")), (28_800, t("8 hours", "8 часов"))] {
-            let item = NSMenuItem(title: pair.1, action: #selector(enableTemporary(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = pair.0
-            temporaryMenu.addItem(item)
+            let entry = item(pair.1, #selector(enableTemporary(_:)))
+            entry.tag = pair.0
+            temporaryMenu.addItem(entry)
         }
-        let temporaryItem = NSMenuItem(title: t("Temporary Mode", "Временный режим"), action: nil, keyEquivalent: "")
-        temporaryItem.submenu = temporaryMenu
-        menu.addItem(temporaryItem)
-        menu.addItem(.separator())
+        menu.addItem(submenu(t("Temporary mode", "Временный режим"), temporaryMenu))
 
         let settingsMenu = NSMenu()
 
-        let ac = submenuItem(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC), in: settingsMenu)
+        let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC))
         ac.state = settings.acOnly ? .on : .off
+        settingsMenu.addItem(ac)
 
-        let lock = submenuItem(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose), in: settingsMenu)
+        let lock = item(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose))
         lock.state = settings.lockOnLidClose ? .on : .off
+        settingsMenu.addItem(lock)
 
-        let thermal = submenuItem(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal), in: settingsMenu)
+        let thermal = item(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal))
         thermal.state = settings.thermalProtection ? .on : .off
+        settingsMenu.addItem(thermal)
 
-        let notifications = submenuItem(t("Notifications", "Уведомления"), #selector(toggleNotifications), in: settingsMenu)
+        let notifications = item(t("Notifications", "Уведомления"), #selector(toggleNotifications))
         notifications.state = settings.notifications ? .on : .off
+        settingsMenu.addItem(notifications)
 
-        let login = submenuItem(t("Launch at login", "Запускать при входе"), #selector(toggleLogin), in: settingsMenu)
+        let login = item(t("Launch at login", "Запускать при входе"), #selector(toggleLogin))
         login.state = settings.launchAtLogin ? .on : .off
-
-        let settingsItem = NSMenuItem(title: t("Settings", "Настройки"), action: nil, keyEquivalent: "")
-        settingsItem.submenu = settingsMenu
-        menu.addItem(settingsItem)
+        settingsMenu.addItem(login)
+        settingsMenu.addItem(.separator())
 
         let batteryMenu = NSMenu()
         for value in [10, 20, 30, 40] {
-            let item = NSMenuItem(title: "\(value)%", action: #selector(setBatteryLimit(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = value
-            item.state = settings.batteryLimit == value ? .on : .off
-            batteryMenu.addItem(item)
+            let entry = item("\(value)%", #selector(setBatteryLimit(_:)))
+            entry.tag = value
+            entry.state = settings.batteryLimit == value ? .on : .off
+            batteryMenu.addItem(entry)
         }
-        let batteryItem = NSMenuItem(title: t("Disable at battery level", "Отключать при уровне батареи"), action: nil, keyEquivalent: "")
-        batteryItem.submenu = batteryMenu
-        menu.addItem(batteryItem)
+        settingsMenu.addItem(submenu(t("Disable at battery level", "Отключать при уровне батареи"), batteryMenu))
 
         let maxMenu = NSMenu()
         for pair in [(3600, t("1 hour", "1 час")), (14_400, t("4 hours", "4 часа")), (28_800, t("8 hours", "8 часов")), (43_200, t("12 hours", "12 часов"))] {
-            let item = NSMenuItem(title: pair.1, action: #selector(setMaxDuration(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = pair.0
-            item.state = settings.maxDuration == pair.0 ? .on : .off
-            maxMenu.addItem(item)
+            let entry = item(pair.1, #selector(setMaxDuration(_:)))
+            entry.tag = pair.0
+            entry.state = settings.maxDuration == pair.0 ? .on : .off
+            maxMenu.addItem(entry)
         }
-        let maxItem = NSMenuItem(title: t("Maximum temporary duration", "Максимальная длительность временного режима"), action: nil, keyEquivalent: "")
-        maxItem.submenu = maxMenu
-        menu.addItem(maxItem)
+        settingsMenu.addItem(submenu(t("Maximum temporary duration", "Максимальная длительность временного режима"), maxMenu))
 
         let languageMenu = NSMenu()
-        let languageOptions: [(AppLanguage, String)] = [(.russian, "Русский"), (.english, "English")]
-        for (index, option) in languageOptions.enumerated() {
-            let item = NSMenuItem(title: option.1, action: #selector(setLanguage(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = index
-            item.state = L10n.selectedLanguage == option.0 ? .on : .off
-            languageMenu.addItem(item)
-        }
-        let languageItem = NSMenuItem(title: t("Language", "Язык"), action: nil, keyEquivalent: "")
-        languageItem.submenu = languageMenu
-        menu.addItem(languageItem)
+        let russian = item("Русский", #selector(useRussian))
+        russian.state = L10n.selectedLanguage == .russian ? .on : .off
+        languageMenu.addItem(russian)
+        let english = item("English", #selector(useEnglish))
+        english.state = L10n.selectedLanguage == .english ? .on : .off
+        languageMenu.addItem(english)
+        settingsMenu.addItem(submenu(t("Language", "Язык"), languageMenu))
 
+        menu.addItem(submenu(t("Settings", "Настройки"), settingsMenu))
         menu.addItem(.separator())
-        addItem(t("Check for Updates…", "Проверить обновления…"), #selector(checkUpdates))
-        addItem(t("Open Diagnostics…", "Открыть диагностику…"), #selector(showDiagnostics))
-        addItem(t("Open Logs", "Открыть логи"), #selector(openLogs))
-        addItem(t("Open Project Page", "Открыть страницу проекта"), #selector(openProject))
+
+        addItem(t("Diagnostics…", "Диагностика…"), #selector(showDiagnostics))
+        addItem(t("Open log", "Открыть журнал"), #selector(openLogs))
+        addItem(t("Check for updates…", "Проверить обновления…"), #selector(checkUpdates))
+        addItem(t("Open project page", "Открыть страницу проекта"), #selector(openProject))
         menu.addItem(.separator())
-        addItem(t("Quit Lid Awake", "Завершить Lid Awake"), #selector(quit))
+        addItem(t("Quit", "Выход"), #selector(quit))
 
         let symbol: String
         switch state {
@@ -156,25 +146,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return t("\(max(1, minutes))m", "\(max(1, minutes)) мин")
     }
 
-    @discardableResult private func addItem(_ title: String, _ action: Selector, enabled: Bool = true) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        item.isEnabled = enabled
-        menu.addItem(item)
-        return item
+    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+        let result = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        result.target = self
+        return result
     }
 
-    @discardableResult private func submenuItem(_ title: String, _ action: Selector, in submenu: NSMenu) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        submenu.addItem(item)
-        return item
+    private func submenu(_ title: String, _ child: NSMenu) -> NSMenuItem {
+        let result = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        result.submenu = child
+        return result
+    }
+
+    @discardableResult private func addItem(_ title: String, _ action: Selector, enabled: Bool = true) -> NSMenuItem {
+        let result = item(title, action)
+        result.isEnabled = enabled
+        menu.addItem(result)
+        return result
     }
 
     private func addLabel(_ title: String) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        menu.addItem(item)
+        let result = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        result.isEnabled = false
+        menu.addItem(result)
     }
 
     private func perform(_ block: () throws -> Void) {
@@ -200,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleNotifications() { perform { try controller.update { $0.notifications.toggle() } } }
     @objc private func toggleLogin() { perform { try controller.update { $0.launchAtLogin.toggle() } } }
     @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try controller.update { $0.batteryLimit = sender.tag } } }
+
     @objc private func setMaxDuration(_ sender: NSMenuItem) {
         perform {
             try controller.update {
@@ -211,11 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func setLanguage(_ sender: NSMenuItem) {
-        let options: [AppLanguage] = [.russian, .english]
-        guard options.indices.contains(sender.tag) else { return }
-        perform { try L10n.setLanguage(options[sender.tag]); _ = try controller.reconcile() }
-    }
+    @objc private func useRussian() { perform { try L10n.setLanguage(.russian); _ = try controller.reconcile() } }
+    @objc private func useEnglish() { perform { try L10n.setLanguage(.english); _ = try controller.reconcile() } }
 
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
 
