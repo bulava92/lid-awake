@@ -55,20 +55,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(temporaryItem)
         menu.addItem(.separator())
 
-        let ac = addItem(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC))
+        let settingsMenu = NSMenu()
+
+        let ac = submenuItem(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC), in: settingsMenu)
         ac.state = settings.acOnly ? .on : .off
 
-        let lock = addItem(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose))
+        let lock = submenuItem(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose), in: settingsMenu)
         lock.state = settings.lockOnLidClose ? .on : .off
 
-        let thermal = addItem(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal))
+        let thermal = submenuItem(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal), in: settingsMenu)
         thermal.state = settings.thermalProtection ? .on : .off
 
-        let notifications = addItem(t("Notifications", "Уведомления"), #selector(toggleNotifications))
+        let notifications = submenuItem(t("Notifications", "Уведомления"), #selector(toggleNotifications), in: settingsMenu)
         notifications.state = settings.notifications ? .on : .off
 
-        let login = addItem(t("Launch at login", "Запускать при входе"), #selector(toggleLogin))
+        let login = submenuItem(t("Launch at login", "Запускать при входе"), #selector(toggleLogin), in: settingsMenu)
         login.state = settings.launchAtLogin ? .on : .off
+
+        let settingsItem = NSMenuItem(title: t("Settings", "Настройки"), action: nil, keyEquivalent: "")
+        settingsItem.submenu = settingsMenu
+        menu.addItem(settingsItem)
 
         let batteryMenu = NSMenu()
         for value in [10, 20, 30, 40] {
@@ -155,6 +161,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.target = self
         item.isEnabled = enabled
         menu.addItem(item)
+        return item
+    }
+
+    @discardableResult private func submenuItem(_ title: String, _ action: Selector, in submenu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        submenu.addItem(item)
         return item
     }
 
