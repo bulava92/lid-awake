@@ -31,6 +31,8 @@ zsh ./install.sh
 
 The installer asks for the administrator password. Normal menu bar and CLI use does not require entering it again.
 
+The application icon source is stored as `Assets/AppIcon.png`. During installation, macOS `sips` and `iconutil` generate the required `AppIcon.icns` and bundle it into the application.
+
 ## Defaults
 
 - Closed-lid operation: disabled
