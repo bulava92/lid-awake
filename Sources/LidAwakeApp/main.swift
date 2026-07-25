@@ -201,26 +201,112 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func checkUpdates() {
+        let current = LidAwakeController.version
         guard let url = URL(string: "https://api.github.com/repos/bulava92/lid-awake/releases/latest") else { return }
-        var request = URLRequest(url: url); request.setValue("LidAwake/\(LidAwakeController.version)", forHTTPHeaderField: "User-Agent")
+        var request = URLRequest(url: url)
+        request.setValue("LidAwake/\(current)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            var message = self?.t("Could not check for updates.", "Не удалось проверить обновления.") ?? ""
-            var releaseURL: URL?
-            if let error { message = error.localizedDescription }
-            else if let http = response as? HTTPURLResponse, http.statusCode == 404 {
-                message = self?.t("No published releases yet. You are using version \(LidAwakeController.version).", "Опубликованных релизов пока нет. Установлена версия \(LidAwakeController.version).") ?? ""
-            } else if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let tag = json["tag_name"] as? String {
-                let clean = tag.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
-                if clean == LidAwakeController.version { message = self?.t("You have the latest version.", "Установлена последняя версия.") ?? "" }
-                else {
-                    message = self?.t("Version \(tag) is available.", "Доступна версия \(tag).") ?? ""
-                    if let value = json["html_url"] as? String { releaseURL = URL(string: value) }
+            guard let self else { return }
+            if let error {
+                DispatchQueue.main.async { self.showAlert(title: self.t("Updates", "Обновления"), message: error.localizedDescription, style: .warning) }
+                return
+            }
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = json["tag_name"] as? String else {
+                DispatchQueue.main.async {
+                    self.showAlert(title: self.t("Updates", "Обновления"), message: self.t("Could not read the GitHub response.", "Не удалось прочитать ответ GitHub."), style: .warning)
+                }
+                return
+            }
+
+            let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            let releaseURL = (json["html_url"] as? String).flatMap(URL.init(string:))
+            let assets = json["assets"] as? [[String: Any]] ?? []
+            let packages = assets.compactMap { asset -> (name: String, url: URL)? in
+                guard let name = asset["name"] as? String,
+                      name.lowercased().hasSuffix(".pkg"),
+                      let rawURL = asset["browser_download_url"] as? String,
+                      let url = URL(string: rawURL) else { return nil }
+                return (name, url)
+            }
+            let package = packages.first { $0.name.localizedCaseInsensitiveContains(latest) } ?? packages.first
+
+            DispatchQueue.main.async {
+                guard latest.compare(current, options: .numeric) == .orderedDescending else {
+                    self.showAlert(title: self.t("No update available", "Обновление не требуется"), message: self.t("Version \(current) is up to date.", "Установлена актуальная версия \(current)."))
+                    return
+                }
+
+                let alert = NSAlert()
+                alert.messageText = self.t("Version \(latest) is available", "Доступна версия \(latest)")
+                if package != nil {
+                    alert.informativeText = self.t("The installer package will be downloaded and opened in the standard macOS Installer.", "Установочный пакет будет скачан и открыт в стандартном установщике macOS.")
+                    alert.addButton(withTitle: self.t("Install update", "Установить обновление"))
+                } else {
+                    alert.informativeText = self.t("The release does not contain a .pkg installer.", "В релизе не найден установочный пакет .pkg.")
+                    alert.addButton(withTitle: self.t("Open release", "Открыть релиз"))
+                }
+                alert.addButton(withTitle: self.t("Open release notes", "Открыть описание"))
+                alert.addButton(withTitle: self.t("Later", "Позже"))
+
+                switch alert.runModal() {
+                case .alertFirstButtonReturn:
+                    if let package {
+                        self.downloadAndOpenUpdate(packageURL: package.url, filename: package.name, version: latest)
+                    } else if let releaseURL {
+                        NSWorkspace.shared.open(releaseURL)
+                    }
+                case .alertSecondButtonReturn:
+                    if let releaseURL { NSWorkspace.shared.open(releaseURL) }
+                default:
+                    break
                 }
             }
-            DispatchQueue.main.async {
-                let alert = NSAlert(); alert.messageText = self?.t("Updates", "Обновления") ?? "Lid Awake"; alert.informativeText = message
-                if releaseURL != nil { alert.addButton(withTitle: self?.t("Open release", "Открыть релиз") ?? "Open"); alert.addButton(withTitle: self?.t("Close", "Закрыть") ?? "Close") }
-                if alert.runModal() == .alertFirstButtonReturn, let releaseURL { NSWorkspace.shared.open(releaseURL) }
+        }.resume()
+    }
+
+    private func downloadAndOpenUpdate(packageURL: URL, filename: String, version: String) {
+        var request = URLRequest(url: packageURL)
+        request.setValue("LidAwake/\(version)", forHTTPHeaderField: "User-Agent")
+
+        URLSession.shared.downloadTask(with: request) { [weak self] temporaryURL, response, error in
+            guard let self else { return }
+            if let error {
+                DispatchQueue.main.async { self.showAlert(title: self.t("Could not download update", "Не удалось скачать обновление"), message: error.localizedDescription, style: .warning) }
+                return
+            }
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode), let temporaryURL else {
+                DispatchQueue.main.async { self.showAlert(title: self.t("Could not download update", "Не удалось скачать обновление"), message: self.t("The server returned an invalid response.", "Сервер вернул некорректный ответ."), style: .warning) }
+                return
+            }
+
+            do {
+                let safeFilename = URL(fileURLWithPath: filename).lastPathComponent
+                guard safeFilename.lowercased().hasSuffix(".pkg") else {
+                    throw NSError(domain: "LidAwake.Update", code: 1, userInfo: [NSLocalizedDescriptionKey: self.t("The update file is not a .pkg package.", "Файл обновления не является пакетом .pkg.")])
+                }
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Lid Awake Updates", isDirectory: true)
+                    .appendingPathComponent(version, isDirectory: true)
+                try? FileManager.default.removeItem(at: directory)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let destination = directory.appendingPathComponent(safeFilename)
+                try FileManager.default.moveItem(at: temporaryURL, to: destination)
+                let values = try destination.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                guard values.isRegularFile == true, (values.fileSize ?? 0) > 0 else {
+                    throw NSError(domain: "LidAwake.Update", code: 2, userInfo: [NSLocalizedDescriptionKey: self.t("The downloaded package is empty or damaged.", "Загруженный пакет пуст или повреждён.")])
+                }
+                DispatchQueue.main.async {
+                    if !NSWorkspace.shared.open(destination) {
+                        self.showAlert(title: self.t("Could not open Installer", "Не удалось открыть установщик"), message: self.t("The package was saved at: \(destination.path)", "Пакет сохранён: \(destination.path)"), style: .warning)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { self.showAlert(title: self.t("Could not prepare update", "Не удалось подготовить обновление"), message: error.localizedDescription, style: .warning) }
             }
         }.resume()
     }
