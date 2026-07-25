@@ -39,7 +39,7 @@ public enum BuildVersion {
 EOF
 
 swift build -c release
-swift test
+.build/release/lid-awake-self-test
 rm -rf build
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources" "$AGENT_CONTENTS/MacOS" "$AGENT_CONTENTS/Resources" "$ICONSET_PATH"
 cp ".build/release/LidAwakeApp" "$APP_CONTENTS/MacOS/LidAwakeApp"
