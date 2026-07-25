@@ -2,7 +2,11 @@
 
 [Русская версия](README_RU.md)
 
-[Support the project](https://boosty.to/smd.monster/donate)
+<p align="center">
+  <a href="https://boosty.to/smd.monster/donate">
+    <img src="https://img.shields.io/badge/Support_the_project-Boosty-f15f2c?style=for-the-badge" alt="Support the project on Boosty">
+  </a>
+</p>
 
 Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid closed.
 
@@ -10,24 +14,20 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 
 ## Features
 
-- Permanent mode until manually disabled.
-- Temporary mode with 15-minute, 1-hour, 8-hour, and custom durations.
-- Configurable maximum temporary duration; unavailable presets are disabled.
-- Optional AC-only operation, battery cutoff, and thermal protection.
-- Immediate power-source updates through IOKit, with a delayed recheck as a safeguard.
-- Independent lid-close actions: turn off displays, lock the session, and play a sound.
-- Separate lid-close sound volume control.
-- Native macOS notifications.
-- Russian and English interface.
-- Event-driven lid monitoring through IOKit, with a low-frequency fallback check.
-- Menu bar icons for enabled, temporary, power-waiting, low-battery, thermal, and disabled states.
-- Diagnostics, rotating logs, CLI, update checks, `.pkg` building, ad-hoc signing, and Developer ID support.
+- Permanent and temporary modes.
+- Optional AC-only operation.
+- Automatic low-battery suspension.
+- Thermal protection.
+- Immediate charger updates through IOKit.
+- Independent lid-close actions: turn off the display, lock the session, and play a sound.
+- Native notifications, diagnostics, rotating logs, CLI, and update checks.
+- `.pkg` building, ad-hoc signing, Developer ID signing, and notarization support.
 
 ## Menu structure
 
 The main menu contains the current mode, Enable, Disable, Temporary mode, Settings, Diagnostics, Open log, Check for updates, and Quit.
 
-All preferences are inside **Settings**:
+Inside **Settings**:
 
 - Only while connected to power
 - When the lid closes…
@@ -42,20 +42,67 @@ All preferences are inside **Settings**:
 - Maximum temporary duration
 - Language
 
-The lid-close actions are independent. Turning off the display does not explicitly lock the session, although macOS may still require authentication after display sleep according to the system Lock Screen settings.
+## How the mode works
+
+Selecting Enable means Lid Awake should keep the Mac active until the user disables it. Temporary mode does the same until its timer expires.
+
+Safety constraints do not cancel the user's request. Missing external power, low battery, or thermal pressure changes the state to Paused. When the constraint disappears, the mode resumes automatically.
+
+## Power and battery handling
+
+Lid Awake subscribes to native IOKit power-source notifications. Connecting or disconnecting the charger triggers immediate policy reconciliation, followed by another reconciliation after a short delay as a safeguard. A periodic timer remains as a fallback.
+
+When **Only while connected to power** is enabled, battery operation moves the app into a waiting state. Connecting the charger automatically restores the requested mode.
+
+**Disable at battery level** pauses the mode when battery charge is equal to or below the selected threshold. Connecting power or charging above the threshold allows automatic recovery.
+
+## Thermal protection
+
+Lid Awake does not measure a temperature in degrees. It uses macOS `ProcessInfo.processInfo.thermalState`:
+
+- `nominal` — normal thermal state;
+- `fair` — elevated load, no shutdown required;
+- `serious` — serious thermal pressure;
+- `critical` — critical thermal pressure.
+
+At `serious` or `critical`, Lid Awake disables the keep-awake helper, changes the state to Paused, and records the reason in the event log. It automatically resumes after the state returns to `nominal` or `fair`, provided the mode is still requested.
+
+## Lid-close actions
+
+The actions are independent:
+
+- **Turn off display** — requests display sleep without explicitly locking the session.
+- **Lock screen** — locks the user session through `CGSession`.
+- **Play sound** — plays the macOS `Glass.aiff` sound.
+- **Sound volume** — controls the signal volume relative to the current macOS system volume.
+
+With system volume at 50%, 100% in Lid Awake means the loudest signal the app can produce without changing the system volume. It does not bypass the system output level.
+
+macOS may require a password or Touch ID after display sleep according to **System Settings → Lock Screen**. Display sleep may therefore look like an explicit lock even when Lock screen is disabled in Lid Awake.
+
+## Notifications
+
+Notifications are sent for meaningful state transitions, such as waiting for power, a safety suspension, or automatic recovery. Disabling notifications does not affect the keep-awake behavior.
+
+## Menu bar icons
+
+- open lock — permanent active mode;
+- timer — temporary active mode;
+- power plug — waiting for external power;
+- battery — battery threshold restriction;
+- thermometer — thermal restriction;
+- moon — disabled.
 
 ## Installation
 
 ### Installer package
-
-Build a local unsigned package:
 
 ```bash
 zsh ./build-pkg.sh
 open build
 ```
 
-The resulting package is written to `build/LidAwake-<version>-unsigned.pkg`.
+The package is written to `build/LidAwake-<version>-unsigned.pkg`.
 
 ### Installation from source
 
@@ -75,17 +122,17 @@ git pull
 zsh ./install.sh
 ```
 
-The installer builds and tests the project, migrates old layouts, creates the application and agent bundles, applies ad-hoc signatures when no Developer ID is supplied, installs LaunchAgents, resets `disablesleep` to the safe default, and verifies the installation.
+The installer builds and tests the project, creates the app and agent bundles, installs the LaunchAgent, helper, and CLI, restores `disablesleep` to its safe default, and verifies the installation.
 
 ## Permissions
 
-Current versions use `CGSession` for explicit screen locking and do **not** require Accessibility permission. Older builds used keyboard emulation as a fallback. If an old `lid-awake-agent` entry remains in **System Settings → Privacy & Security → Accessibility**, it can be removed.
+Explicit locking uses `CGSession` and does not require Accessibility permission. An old `lid-awake-agent` entry in Accessibility settings can be removed.
 
-The background agent may request notification permission when notifications are enabled.
+The background agent may request notification permission.
 
-## Power-source handling
+## Temporary mode
 
-Lid Awake subscribes to native IOKit power-source notifications. Connecting or disconnecting the charger triggers an immediate policy reconciliation, followed by a delayed reconciliation as a safeguard. A periodic timer remains as a fallback.
+The submenu provides standard durations, a custom duration, and timer cancellation. Cancelling temporary mode fully disables Lid Awake. A requested duration cannot exceed the configured maximum.
 
 ## CLI
 
@@ -100,29 +147,27 @@ lid-awake diagnostics
 lid-awake version
 ```
 
-The requested temporary duration must not exceed the configured maximum.
+## Diagnostics and logs
 
-## Logs and diagnostics
+Diagnostics include version, architecture, helper state, active settings, power source, battery level, thermal state, lid state, and agent path.
 
 - Agent log: `~/Library/Logs/Lid Awake/agent.log`
 - Previous agent log: `~/Library/Logs/Lid Awake/agent.log.1`
 - Event log: `~/Library/Application Support/Lid Awake/events.log`
 - Previous event log: `~/Library/Application Support/Lid Awake/events.log.1`
-- Last detected lid close: `~/Library/Application Support/Lid Awake/last-lid-close.txt`
+- Last lid close: `~/Library/Application Support/Lid Awake/last-lid-close.txt`
 
 Logs rotate at approximately 1 MB.
 
 ## Updates
 
-**Check for updates…** reads the latest GitHub release. When a newer release exists, the dialog can open its release page.
+**Check for updates…** reads the latest GitHub release and can open its release page.
 
-## Versioning
+## Versioning, signing, and notarization
 
-`VERSION` is the source of truth. `install.sh` and `build-pkg.sh` generate `Sources/LidAwakeCore/BuildVersion.swift` before building and write the same version into both application bundles.
+`VERSION` is the source of truth. `install.sh` and `build-pkg.sh` generate `Sources/LidAwakeCore/BuildVersion.swift` and write the same version into the bundles.
 
-## Signing
-
-Without `SIGN_IDENTITY`, both bundles receive local ad-hoc signatures. Developer ID signing and notarization are documented in [SIGNING.md](SIGNING.md).
+Without `SIGN_IDENTITY`, local ad-hoc signatures are used. Developer ID signing and notarization are documented in [SIGNING.md](SIGNING.md).
 
 ## Uninstall
 
@@ -130,7 +175,7 @@ Without `SIGN_IDENTITY`, both bundles receive local ad-hoc signatures. Developer
 zsh ./uninstall.sh
 ```
 
-The uninstaller restores normal sleep behavior and removes the app, agent, LaunchAgents, helper, CLI, settings, and logs.
+The script restores normal sleep behavior and removes the app, agent, LaunchAgent, helper, CLI, settings, and logs.
 
 ## License
 
