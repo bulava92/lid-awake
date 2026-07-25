@@ -44,6 +44,7 @@ public struct LidAwakeSettings: Codable, Equatable {
     public var thermalProtection: Bool
     public var notifications: Bool
     public var launchAtLogin: Bool
+    public var displaySleepOnLidClose: Bool
     public var lockOnLidClose: Bool
     public var soundOnLidClose: Bool
     public var lidCloseSoundVolume: Int
@@ -51,18 +52,21 @@ public struct LidAwakeSettings: Codable, Equatable {
     public init(requested: Bool = false, acOnly: Bool = true, batteryLimit: Int = 20,
                 maxDuration: Int = 28_800, expiresAt: Date? = nil,
                 thermalProtection: Bool = true, notifications: Bool = true,
-                launchAtLogin: Bool = true, lockOnLidClose: Bool = false,
-                soundOnLidClose: Bool = false, lidCloseSoundVolume: Int = 50) {
+                launchAtLogin: Bool = true, displaySleepOnLidClose: Bool = false,
+                lockOnLidClose: Bool = false, soundOnLidClose: Bool = false,
+                lidCloseSoundVolume: Int = 50) {
         self.requested = requested; self.acOnly = acOnly; self.batteryLimit = batteryLimit
         self.maxDuration = maxDuration; self.expiresAt = expiresAt
         self.thermalProtection = thermalProtection; self.notifications = notifications
-        self.launchAtLogin = launchAtLogin; self.lockOnLidClose = lockOnLidClose
-        self.soundOnLidClose = soundOnLidClose; self.lidCloseSoundVolume = lidCloseSoundVolume
+        self.launchAtLogin = launchAtLogin; self.displaySleepOnLidClose = displaySleepOnLidClose
+        self.lockOnLidClose = lockOnLidClose; self.soundOnLidClose = soundOnLidClose
+        self.lidCloseSoundVolume = lidCloseSoundVolume
     }
 
     enum CodingKeys: String, CodingKey {
         case requested, acOnly, batteryLimit, maxDuration, expiresAt, thermalProtection
-        case notifications, launchAtLogin, lockOnLidClose, soundOnLidClose, lidCloseSoundVolume
+        case notifications, launchAtLogin, displaySleepOnLidClose, lockOnLidClose
+        case soundOnLidClose, lidCloseSoundVolume
     }
 
     public init(from decoder: Decoder) throws {
@@ -75,6 +79,7 @@ public struct LidAwakeSettings: Codable, Equatable {
         thermalProtection = try c.decodeIfPresent(Bool.self, forKey: .thermalProtection) ?? true
         notifications = try c.decodeIfPresent(Bool.self, forKey: .notifications) ?? true
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? true
+        displaySleepOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .displaySleepOnLidClose) ?? false
         lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? false
         soundOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose) ?? false
         lidCloseSoundVolume = try c.decodeIfPresent(Int.self, forKey: .lidCloseSoundVolume) ?? 50
@@ -253,6 +258,7 @@ public struct LidAwakeController {
         language: \(L10n.selectedLanguage.rawValue)
         requested: \(settings.requested)
         mode: \(settings.expiresAt == nil ? "permanent" : "temporary")
+        display-sleep-on-lid-close: \(settings.displaySleepOnLidClose)
         lock-on-lid-close: \(settings.lockOnLidClose)
         sound-on-lid-close: \(settings.soundOnLidClose)
         sound-volume: \(settings.lidCloseSoundVolume)%
