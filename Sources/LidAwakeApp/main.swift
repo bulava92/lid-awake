@@ -30,242 +30,183 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let remaining = status?.remainingSeconds, settings.requested, settings.expiresAt != nil {
             addLabel(t("Temporary mode: active, \(formatRemaining(remaining)) remaining", "Временный режим: активен, осталось \(formatRemaining(remaining))"))
         } else {
-            addLabel(t("Status: ", "Состояние: ") + localizedState(state))
-            if state == .blocked, let reason = status?.reason { addLabel(reason) }
+            addLabel(t("Current mode: ", "Текущий режим: ") + localizedState(state, temporary: false))
         }
-
-        if let status {
-            let power = status.power
-            let source = power.onAC ? t("Adapter", "Адаптер") : t("Battery", "Батарея")
-            addLabel(t("Power: ", "Питание: ") + source + (power.batteryPercent.map { ", \($0)%" } ?? ""))
-            addLabel(t("Thermal state: ", "Температурное состояние: ") + localizedThermal(status.thermal))
-        }
+        if state == .blocked, let reason = status?.reason { addLabel(reason) }
         menu.addItem(.separator())
 
-        addItem(t("Enable", "Включить"), #selector(enablePermanent), enabled: !settings.requested || settings.expiresAt != nil)
-        addItem(t("Disable", "Выключить"), #selector(disable), enabled: settings.requested)
+        let enable = addItem(t("Enable", "Включить"), #selector(enablePermanent))
+        enable.state = settings.requested && settings.expiresAt == nil ? .on : .off
+        let disableItem = addItem(t("Disable", "Выключить"), #selector(disable))
+        disableItem.state = !settings.requested ? .on : .off
 
         let temporaryMenu = NSMenu()
         for pair in [(900, t("15 minutes", "15 минут")), (3600, t("1 hour", "1 час")), (28_800, t("8 hours", "8 часов"))] {
             let entry = item(pair.1, #selector(enableTemporary(_:)))
             entry.tag = pair.0
+            entry.isEnabled = pair.0 <= settings.maxDuration
             temporaryMenu.addItem(entry)
+        }
+        temporaryMenu.addItem(.separator())
+        temporaryMenu.addItem(item(t("Custom temporary mode…", "Другой временный режим…"), #selector(customTemporaryMode)))
+        if settings.expiresAt != nil {
+            temporaryMenu.addItem(.separator())
+            temporaryMenu.addItem(item(t("Cancel temporary mode", "Отменить временный режим"), #selector(cancelTemporary)))
         }
         menu.addItem(submenu(t("Temporary mode", "Временный режим"), temporaryMenu))
 
         let settingsMenu = NSMenu()
-
-        let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC))
-        ac.state = settings.acOnly ? .on : .off
-        settingsMenu.addItem(ac)
-
-        let lock = item(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose))
-        lock.state = settings.lockOnLidClose ? .on : .off
-        settingsMenu.addItem(lock)
-
-        let sound = item(t("Play sound when lid closes", "Звук при закрытии крышки"), #selector(toggleLidCloseSound))
-        sound.state = settings.soundOnLidClose ? .on : .off
-        settingsMenu.addItem(sound)
+        let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC)); ac.state = settings.acOnly ? .on : .off; settingsMenu.addItem(ac)
+        let lock = item(t("Lock screen when lid closes", "Блокировать экран при закрытии крышки"), #selector(toggleLockOnClose)); lock.state = settings.lockOnLidClose ? .on : .off; settingsMenu.addItem(lock)
+        let sound = item(t("Play sound when lid closes", "Звук при закрытии крышки"), #selector(toggleLidCloseSound)); sound.state = settings.soundOnLidClose ? .on : .off; settingsMenu.addItem(sound)
 
         let soundVolumeMenu = NSMenu()
         for value in [25, 50, 75, 100] {
-            let entry = item("\(value)%", #selector(setLidCloseSoundVolume(_:)))
-            entry.tag = value
-            entry.state = settings.lidCloseSoundVolume == value ? .on : .off
-            soundVolumeMenu.addItem(entry)
+            let entry = item("\(value)%", #selector(setLidCloseSoundVolume(_:))); entry.tag = value
+            entry.state = settings.lidCloseSoundVolume == value ? .on : .off; soundVolumeMenu.addItem(entry)
         }
         let soundVolumeItem = submenu(t("Sound volume", "Громкость звука"), soundVolumeMenu)
         soundVolumeItem.isEnabled = settings.soundOnLidClose
         settingsMenu.addItem(soundVolumeItem)
 
-        let thermal = item(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal))
-        thermal.state = settings.thermalProtection ? .on : .off
-        settingsMenu.addItem(thermal)
-
-        let notifications = item(t("Notifications", "Уведомления"), #selector(toggleNotifications))
-        notifications.state = settings.notifications ? .on : .off
-        settingsMenu.addItem(notifications)
-
-        let login = item(t("Launch at login", "Запускать при входе"), #selector(toggleLogin))
-        login.state = settings.launchAtLogin ? .on : .off
-        settingsMenu.addItem(login)
+        let thermal = item(t("Thermal protection", "Защита от перегрева"), #selector(toggleThermal)); thermal.state = settings.thermalProtection ? .on : .off; settingsMenu.addItem(thermal)
+        let notifications = item(t("Notifications", "Уведомления"), #selector(toggleNotifications)); notifications.state = settings.notifications ? .on : .off; settingsMenu.addItem(notifications)
+        let login = item(t("Launch at login", "Запускать при входе"), #selector(toggleLogin)); login.state = settings.launchAtLogin ? .on : .off; settingsMenu.addItem(login)
         settingsMenu.addItem(.separator())
 
         let batteryMenu = NSMenu()
         for value in [10, 20, 30, 40] {
-            let entry = item("\(value)%", #selector(setBatteryLimit(_:)))
-            entry.tag = value
-            entry.state = settings.batteryLimit == value ? .on : .off
-            batteryMenu.addItem(entry)
+            let entry = item("\(value)%", #selector(setBatteryLimit(_:))); entry.tag = value
+            entry.state = settings.batteryLimit == value ? .on : .off; batteryMenu.addItem(entry)
         }
         settingsMenu.addItem(submenu(t("Disable at battery level", "Отключать при уровне батареи"), batteryMenu))
 
         let maxMenu = NSMenu()
         for pair in [(3600, t("1 hour", "1 час")), (14_400, t("4 hours", "4 часа")), (28_800, t("8 hours", "8 часов")), (43_200, t("12 hours", "12 часов"))] {
-            let entry = item(pair.1, #selector(setMaxDuration(_:)))
-            entry.tag = pair.0
-            entry.state = settings.maxDuration == pair.0 ? .on : .off
-            maxMenu.addItem(entry)
+            let entry = item(pair.1, #selector(setMaxDuration(_:))); entry.tag = pair.0
+            entry.state = settings.maxDuration == pair.0 ? .on : .off; maxMenu.addItem(entry)
         }
         settingsMenu.addItem(submenu(t("Maximum temporary duration", "Максимальная длительность временного режима"), maxMenu))
 
         let languageMenu = NSMenu()
-        let russian = item("Русский", #selector(useRussian))
-        russian.state = L10n.selectedLanguage == .russian ? .on : .off
-        languageMenu.addItem(russian)
-        let english = item("English", #selector(useEnglish))
-        english.state = L10n.selectedLanguage == .english ? .on : .off
-        languageMenu.addItem(english)
+        let russian = item("Русский", #selector(useRussian)); russian.state = L10n.selectedLanguage == .russian ? .on : .off; languageMenu.addItem(russian)
+        let english = item("English", #selector(useEnglish)); english.state = L10n.selectedLanguage == .english ? .on : .off; languageMenu.addItem(english)
         settingsMenu.addItem(submenu(t("Language", "Язык"), languageMenu))
 
         menu.addItem(submenu(t("Settings", "Настройки"), settingsMenu))
         menu.addItem(.separator())
-
         addItem(t("Diagnostics…", "Диагностика…"), #selector(showDiagnostics))
         addItem(t("Open log", "Открыть журнал"), #selector(openLogs))
         addItem(t("Check for updates…", "Проверить обновления…"), #selector(checkUpdates))
         menu.addItem(.separator())
-        let quitItem = addItem(t("Quit", "Выход"), #selector(quit))
-        quitItem.keyEquivalent = "q"
-        quitItem.keyEquivalentModifierMask = [.command]
+        let quitItem = addItem(t("Quit", "Выход"), #selector(quit)); quitItem.keyEquivalent = "q"; quitItem.keyEquivalentModifierMask = [.command]
 
         let symbol: String
-        switch state {
-        case .enabled: symbol = settings.expiresAt == nil ? "lock.open.display" : "timer"
-        case .blocked: symbol = "exclamationmark.triangle"
-        default: symbol = "lock.display"
+        if state == .blocked {
+            if status?.thermal == .serious || status?.thermal == .critical { symbol = "thermometer.high" }
+            else if status?.power.onAC == false && settings.acOnly { symbol = "powerplug" }
+            else { symbol = "battery.25" }
+        } else if state == .enabled {
+            symbol = settings.expiresAt == nil ? "lock.open.fill" : "timer"
+        } else {
+            symbol = "moon.zzz"
         }
         statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Lid Awake")
     }
 
-    private func localizedState(_ state: LidAwakeState) -> String {
+    private func localizedState(_ state: LidAwakeState, temporary: Bool) -> String {
         switch state {
-        case .enabled: return t("Enabled", "Включено")
+        case .enabled: return temporary ? t("Temporary", "Временный") : t("Enabled", "Включено")
         case .disabled: return t("Disabled", "Выключено")
         case .blocked: return t("Paused", "Приостановлено")
         case .unknown: return t("Unknown", "Неизвестно")
         }
     }
 
-    private func localizedThermal(_ value: ThermalLevel) -> String {
-        switch value {
-        case .nominal: return t("Normal", "Нормальное")
-        case .fair: return t("Elevated", "Повышенное")
-        case .serious: return t("High", "Высокое")
-        case .critical: return t("Critical", "Критическое")
-        case .unknown: return t("Unknown", "Неизвестно")
-        }
-    }
-
     private func formatRemaining(_ seconds: Int) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
+        let hours = seconds / 3600; let minutes = (seconds % 3600) / 60
         if hours > 0 { return t("\(hours)h \(minutes)m", "\(hours) ч \(minutes) мин") }
         return t("\(max(1, minutes))m", "\(max(1, minutes)) мин")
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
-        let result = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        result.target = self
-        return result
+        let result = NSMenuItem(title: title, action: action, keyEquivalent: ""); result.target = self; return result
     }
-
     private func submenu(_ title: String, _ child: NSMenu) -> NSMenuItem {
-        let result = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        result.submenu = child
-        return result
+        let result = NSMenuItem(title: title, action: nil, keyEquivalent: ""); result.submenu = child; return result
     }
-
-    @discardableResult private func addItem(_ title: String, _ action: Selector, enabled: Bool = true) -> NSMenuItem {
-        let result = item(title, action)
-        result.isEnabled = enabled
-        menu.addItem(result)
-        return result
+    @discardableResult private func addItem(_ title: String, _ action: Selector) -> NSMenuItem {
+        let result = item(title, action); menu.addItem(result); return result
     }
-
     private func addLabel(_ title: String) {
-        let result = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        result.isEnabled = false
-        menu.addItem(result)
+        let result = NSMenuItem(title: title, action: nil, keyEquivalent: ""); result.isEnabled = false; menu.addItem(result)
     }
-
     private func perform(_ block: () throws -> Void) {
-        do { try block() }
-        catch { showAlert(title: "Lid Awake", message: error.localizedDescription, style: .warning) }
+        do { try block() } catch { showAlert(title: "Lid Awake", message: error.localizedDescription, style: .warning) }
         rebuildMenu()
     }
-
     private func showAlert(title: String, message: String, style: NSAlert.Style = .informational) {
-        let alert = NSAlert()
-        alert.alertStyle = style
-        alert.messageText = title
-        alert.informativeText = message
-        alert.runModal()
+        let alert = NSAlert(); alert.alertStyle = style; alert.messageText = title; alert.informativeText = message; alert.runModal()
     }
 
     @objc private func enablePermanent() { perform { try controller.requestEnabled() } }
     @objc private func enableTemporary(_ sender: NSMenuItem) { perform { try controller.requestTemporary(duration: sender.tag) } }
+    @objc private func cancelTemporary() { perform { try controller.cancelTemporary() } }
     @objc private func disable() { perform { try controller.requestDisabled() } }
+
+    @objc private func customTemporaryMode() {
+        let settings = controller.loadSettings()
+        let alert = NSAlert()
+        alert.messageText = t("Custom temporary mode", "Другой временный режим")
+        alert.informativeText = t("Enter duration in minutes. Maximum: \(settings.maxDuration / 60).", "Введите длительность в минутах. Максимум: \(settings.maxDuration / 60).")
+        let field = NSTextField(string: "60"); field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: t("Start", "Запустить")); alert.addButton(withTitle: t("Cancel", "Отмена"))
+        guard alert.runModal() == .alertFirstButtonReturn, let minutes = Int(field.stringValue), minutes > 0 else { return }
+        perform { try controller.requestTemporary(duration: minutes * 60) }
+    }
+
     @objc private func toggleAC() { perform { try controller.update { $0.acOnly.toggle() } } }
     @objc private func toggleLockOnClose() { perform { try controller.update { $0.lockOnLidClose.toggle() } } }
     @objc private func toggleLidCloseSound() { perform { try controller.update { $0.soundOnLidClose.toggle() } } }
-    @objc private func setLidCloseSoundVolume(_ sender: NSMenuItem) {
-        perform {
-            try controller.update { $0.lidCloseSoundVolume = sender.tag }
-            _ = controller.playLidCloseSound(volumePercent: sender.tag)
-        }
-    }
+    @objc private func setLidCloseSoundVolume(_ sender: NSMenuItem) { perform { try controller.update { $0.lidCloseSoundVolume = sender.tag }; _ = controller.playLidCloseSound(volumePercent: sender.tag) } }
     @objc private func toggleThermal() { perform { try controller.update { $0.thermalProtection.toggle() } } }
     @objc private func toggleNotifications() { perform { try controller.update { $0.notifications.toggle() } } }
     @objc private func toggleLogin() { perform { try controller.update { $0.launchAtLogin.toggle() } } }
     @objc private func setBatteryLimit(_ sender: NSMenuItem) { perform { try controller.update { $0.batteryLimit = sender.tag } } }
-
-    @objc private func setMaxDuration(_ sender: NSMenuItem) {
-        perform {
-            try controller.update {
-                $0.maxDuration = sender.tag
-                if $0.requested, $0.expiresAt != nil {
-                    $0.expiresAt = Date().addingTimeInterval(TimeInterval(sender.tag))
-                }
-            }
-        }
-    }
-
+    @objc private func setMaxDuration(_ sender: NSMenuItem) { perform { try controller.update { $0.maxDuration = sender.tag } } }
     @objc private func useRussian() { perform { try L10n.setLanguage(.russian); _ = try controller.reconcile() } }
     @objc private func useEnglish() { perform { try L10n.setLanguage(.english); _ = try controller.reconcile() } }
 
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
-
     @objc private func openLogs() {
         let manager = FileManager.default
         try? manager.createDirectory(at: LidAwakeController.agentLogFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !manager.fileExists(atPath: LidAwakeController.agentLogFile.path) {
-            manager.createFile(atPath: LidAwakeController.agentLogFile.path, contents: nil)
-        }
+        if !manager.fileExists(atPath: LidAwakeController.agentLogFile.path) { manager.createFile(atPath: LidAwakeController.agentLogFile.path, contents: nil) }
         NSWorkspace.shared.open(LidAwakeController.agentLogFile)
     }
 
     @objc private func checkUpdates() {
         guard let url = URL(string: "https://api.github.com/repos/bulava92/lid-awake/releases/latest") else { return }
-        var request = URLRequest(url: url)
-        request.setValue("LidAwake/\(LidAwakeController.version)", forHTTPHeaderField: "User-Agent")
+        var request = URLRequest(url: url); request.setValue("LidAwake/\(LidAwakeController.version)", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            let message: String
+            var message = self?.t("Could not check for updates.", "Не удалось проверить обновления.") ?? ""
+            var releaseURL: URL?
             if let error { message = error.localizedDescription }
             else if let http = response as? HTTPURLResponse, http.statusCode == 404 {
                 message = self?.t("No published releases yet. You are using version \(LidAwakeController.version).", "Опубликованных релизов пока нет. Установлена версия \(LidAwakeController.version).") ?? ""
-            } else if let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let tag = json["tag_name"] as? String {
+            } else if let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let tag = json["tag_name"] as? String {
                 let clean = tag.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
-                message = clean == LidAwakeController.version
-                    ? (self?.t("You have the latest version.", "Установлена последняя версия.") ?? "")
-                    : (self?.t("Version \(tag) is available on GitHub.", "На GitHub доступна версия \(tag).") ?? "")
-            } else {
-                message = self?.t("Could not check for updates.", "Не удалось проверить обновления.") ?? ""
+                if clean == LidAwakeController.version { message = self?.t("You have the latest version.", "Установлена последняя версия.") ?? "" }
+                else {
+                    message = self?.t("Version \(tag) is available.", "Доступна версия \(tag).") ?? ""
+                    if let value = json["html_url"] as? String { releaseURL = URL(string: value) }
+                }
             }
             DispatchQueue.main.async {
-                self?.showAlert(title: self?.t("Updates", "Обновления") ?? "Lid Awake", message: message)
+                let alert = NSAlert(); alert.messageText = self?.t("Updates", "Обновления") ?? "Lid Awake"; alert.informativeText = message
+                if releaseURL != nil { alert.addButton(withTitle: self?.t("Open release", "Открыть релиз") ?? "Open"); alert.addButton(withTitle: self?.t("Close", "Закрыть") ?? "Close") }
+                if alert.runModal() == .alertFirstButtonReturn, let releaseURL { NSWorkspace.shared.open(releaseURL) }
             }
         }.resume()
     }
