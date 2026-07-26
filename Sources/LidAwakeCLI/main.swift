@@ -15,6 +15,7 @@ func usage() {
       lid-awake status
       lid-awake settings
       lid-awake ac-only on|off
+      lid-awake external-display-bypass on|off
       lid-awake lock-on-lid-close on|off
       lid-awake battery-limit <0...100>
       lid-awake max-duration <seconds>
@@ -33,6 +34,7 @@ func usage() {
       lid-awake status
       lid-awake settings
       lid-awake ac-only on|off
+      lid-awake external-display-bypass on|off
       lid-awake lock-on-lid-close on|off
       lid-awake battery-limit <0...100>
       lid-awake max-duration <секунды>
@@ -65,6 +67,7 @@ func printStatus(_ status: LidAwakeStatus) {
 func printSettings(_ value: LidAwakeSettings) {
     print("requested: \(value.requested)")
     print("ac-only: \(value.acOnly)")
+    print("external-display-bypass: \(value.skipLidActionsWithExternalDisplay)")
     print("lock-on-lid-close: \(value.lockOnLidClose)")
     print("battery-limit: \(value.batteryLimit)")
     print("max-temporary-duration: \(value.maxDuration)")
@@ -90,6 +93,9 @@ do {
     case "ac-only":
         guard args.count == 2 else { throw LidAwakeError.invalidValue }
         let enabled = try boolValue(args[1]); try controller.update { $0.acOnly = enabled }; print("ac-only: \(args[1])")
+    case "external-display-bypass":
+        guard args.count == 2 else { throw LidAwakeError.invalidValue }
+        let enabled = try boolValue(args[1]); try controller.update { $0.skipLidActionsWithExternalDisplay = enabled }; print("external-display-bypass: \(args[1])")
     case "lock-on-lid-close":
         guard args.count == 2 else { throw LidAwakeError.invalidValue }
         let enabled = try boolValue(args[1]); try controller.update { $0.lockOnLidClose = enabled }; print("lock-on-lid-close: \(args[1])")

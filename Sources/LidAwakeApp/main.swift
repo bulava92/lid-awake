@@ -122,6 +122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC)); ac.state = settings.acOnly ? .on : .off; settingsMenu.addItem(ac)
 
         let lidCloseMenu = NSMenu()
+        let externalDisplayBypass = item(
+            t("Do nothing when an external display is connected", "Не выполнять действия при подключённом внешнем мониторе"),
+            #selector(toggleExternalDisplayBypass)
+        )
+        externalDisplayBypass.state = settings.skipLidActionsWithExternalDisplay ? .on : .off
+        lidCloseMenu.addItem(externalDisplayBypass)
+        lidCloseMenu.addItem(.separator())
+
         let displaySleep = item(t("Turn off displays", "Выключить экран"), #selector(toggleDisplaySleepOnClose))
         displaySleep.state = settings.displaySleepOnLidClose ? .on : .off
         lidCloseMenu.addItem(displaySleep)
@@ -258,6 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleAC() { perform { try controller.update { $0.acOnly.toggle() } } }
+    @objc private func toggleExternalDisplayBypass() { perform { try controller.update { $0.skipLidActionsWithExternalDisplay.toggle() } } }
     @objc private func toggleDisplaySleepOnClose() { perform { try controller.update { $0.displaySleepOnLidClose.toggle() } } }
     @objc private func toggleLockOnClose() { perform { try controller.update { $0.lockOnLidClose.toggle() } } }
     @objc private func toggleLidCloseSound() { perform { try controller.update { $0.soundOnLidClose.toggle() } } }

@@ -16,7 +16,11 @@ let package = Package(
         .executableTarget(
             name: "LidAwakeAgent",
             dependencies: ["LidAwakeCore"],
-            linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("UserNotifications")]
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("UserNotifications")
+            ]
         ),
         .executableTarget(
             name: "LidAwakeApp",

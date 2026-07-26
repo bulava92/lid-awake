@@ -3,6 +3,7 @@ import Darwin
 import IOKit
 import IOKit.ps
 import IOKit.pwr_mgt
+import CoreGraphics
 import UserNotifications
 import LidAwakeCore
 
@@ -122,6 +123,14 @@ final class AgentRuntime {
               status.settings.requested,
               status.state == .enabled else { return }
 
+        if status.settings.skipLidActionsWithExternalDisplay, hasExternalDisplay() {
+            controller.appendEvent(L10n.text(
+                "Lid actions skipped because an external display is connected",
+                "Действия при закрытии крышки пропущены: подключён внешний монитор"
+            ))
+            return
+        }
+
         controller.recordLidClose()
         if status.settings.soundOnLidClose {
             if !controller.playLidCloseSound(volumePercent: status.settings.lidCloseSoundVolume) {
@@ -135,6 +144,13 @@ final class AgentRuntime {
         }
         pendingLidCloseActions = actions
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.lidCloseDebounceSeconds, execute: actions)
+    }
+
+    private func hasExternalDisplay() -> Bool {
+        var displays = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else { return false }
+        return displays.prefix(Int(count)).contains { CGDisplayIsBuiltin($0) == 0 }
     }
 
     private func performDebouncedLidCloseActions() {

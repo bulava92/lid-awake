@@ -12,6 +12,7 @@ final class LidAwakeCoreTests: XCTestCase {
         XCTAssertTrue(settings.thermalProtection)
         XCTAssertTrue(settings.notifications)
         XCTAssertTrue(settings.launchAtLogin)
+        XCTAssertFalse(settings.skipLidActionsWithExternalDisplay)
         XCTAssertFalse(settings.lockOnLidClose)
         XCTAssertFalse(settings.soundOnLidClose)
         XCTAssertEqual(settings.lidCloseSoundVolume, 50)
@@ -142,6 +143,7 @@ final class LidAwakeCoreTests: XCTestCase {
         XCTAssertTrue(settings.thermalProtection)
         XCTAssertTrue(settings.notifications)
         XCTAssertTrue(settings.launchAtLogin)
+        XCTAssertFalse(settings.skipLidActionsWithExternalDisplay)
         XCTAssertFalse(settings.lockOnLidClose)
         XCTAssertFalse(settings.soundOnLidClose)
         XCTAssertEqual(settings.lidCloseSoundVolume, 50)
@@ -156,6 +158,7 @@ final class LidAwakeCoreTests: XCTestCase {
             thermalProtection: false,
             notifications: false,
             launchAtLogin: false,
+            skipLidActionsWithExternalDisplay: true,
             lockOnLidClose: true,
             soundOnLidClose: true,
             lidCloseSoundVolume: 75

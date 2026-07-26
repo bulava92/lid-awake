@@ -20,6 +20,7 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 - Thermal protection.
 - Immediate charger updates through IOKit.
 - Independent lid-close actions: turn off the display, lock the session, and play a sound.
+- Optional external-display bypass keeps clamshell mode uninterrupted by skipping all lid-close actions.
 - The lid-close sound plays immediately; screen actions run only after the lid remains closed for a short debounce interval.
 - Native notifications, diagnostics, rotating logs, CLI, and update checks.
 - `.pkg` building, ad-hoc signing, Developer ID signing, and notarization support.
@@ -32,6 +33,7 @@ Inside **Settings**:
 
 - Only while connected to power
 - When the lid closes…
+  - Do nothing when an external display is connected
   - Turn off display
   - Lock screen
   - Play sound
@@ -72,6 +74,7 @@ At `serious` or `critical`, Lid Awake stops keeping the Mac active, changes the 
 
 The actions are independent:
 
+- **Do nothing when an external display is connected** — keeps the Mac awake but skips the sound, lock, and display-sleep actions so the external display can continue in clamshell mode.
 - **Turn off display** — turns off the display without issuing a separate lock command.
 - **Lock screen** — locks the user session.
 - **Play sound** — plays a short system sound.
