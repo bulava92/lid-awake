@@ -16,13 +16,16 @@ USER_ID="$(id -u)"
 ICON_SOURCE="Assets/AppIcon.png"
 ICONSET_PATH="build/AppIcon.iconset"
 ICON_PATH="build/AppIcon.icns"
-APP_CONTENTS="build/${APP_NAME}.app/Contents"
 ENTITLEMENTS="Resources/LidAwake.entitlements"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 SUPPORT_DIR="$HOME/Library/Application Support/Lid Awake"
 LANGUAGE_FILE="$SUPPORT_DIR/language.txt"
 AGENT_APP_NAME="Lid Awake Agent"
-AGENT_BUILD_PATH="build/${AGENT_APP_NAME}.app"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lid-awake-install.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+APP_BUILD_PATH="$STAGING_DIR/${APP_NAME}.app"
+APP_CONTENTS="$APP_BUILD_PATH/Contents"
+AGENT_BUILD_PATH="$STAGING_DIR/${AGENT_APP_NAME}.app"
 AGENT_CONTENTS="$AGENT_BUILD_PATH/Contents"
 AGENT_APP_PATH="$SUPPORT_DIR/${AGENT_APP_NAME}.app"
 AGENT_EXECUTABLE="$AGENT_APP_PATH/Contents/MacOS/lid-awake-agent"
@@ -92,16 +95,24 @@ cat > "$AGENT_CONTENTS/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# Finder metadata and resource forks can be inherited from downloaded assets.
+# They make codesign reject the otherwise valid app bundle.
+xattr -cr "$APP_BUILD_PATH" "$AGENT_BUILD_PATH"
+for bundle in "$APP_BUILD_PATH" "$AGENT_BUILD_PATH"; do
+  xattr -d com.apple.FinderInfo "$bundle" 2>/dev/null || true
+  xattr -d 'com.apple.fileprovider.fpfs#P' "$bundle" 2>/dev/null || true
+done
+
 if [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" ".build/release/lid-awake"
-  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "build/${APP_NAME}.app"
+  codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUILD_PATH"
   codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$AGENT_BUILD_PATH"
 else
-  codesign --force --deep --sign - "build/${APP_NAME}.app"
+  codesign --force --deep --sign - "$APP_BUILD_PATH"
   codesign --force --deep --sign - "$AGENT_BUILD_PATH"
   print "Developer ID is not set; using local ad-hoc signatures."
 fi
-codesign --verify --deep --strict --verbose=2 "build/${APP_NAME}.app"
+codesign --verify --deep --strict --verbose=2 "$APP_BUILD_PATH"
 codesign --verify --deep --strict --verbose=2 "$AGENT_BUILD_PATH"
 
 cat > build/reset.plist <<'PLIST'
@@ -141,12 +152,18 @@ sudo launchctl bootout system/su.xyz.LidAwake.reset 2>/dev/null || true
 sudo launchctl bootstrap system "$RESET_PLIST"
 sudo "$HELPER_PATH" off >/dev/null
 sudo rm -rf "$APP_PATH"
-sudo ditto "build/${APP_NAME}.app" "$APP_PATH"
+sudo ditto "$APP_BUILD_PATH" "$APP_PATH"
 sudo chown -R root:wheel "$APP_PATH"
+sudo xattr -cr "$APP_PATH"
+sudo xattr -d com.apple.FinderInfo "$APP_PATH" 2>/dev/null || true
+sudo xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_PATH" 2>/dev/null || true
 
 mkdir -p "$USER_AGENT_DIR" "$HOME/Library/Logs/Lid Awake" "$SUPPORT_DIR"
 ditto "$AGENT_BUILD_PATH" "$AGENT_APP_PATH"
 chmod -R u+rwX,go+rX "$AGENT_APP_PATH"
+xattr -cr "$AGENT_APP_PATH"
+xattr -d com.apple.FinderInfo "$AGENT_APP_PATH" 2>/dev/null || true
+xattr -d 'com.apple.fileprovider.fpfs#P' "$AGENT_APP_PATH" 2>/dev/null || true
 
 if [[ ! -f "$LANGUAGE_FILE" ]]; then
   if defaults read -g AppleLanguages 2>/dev/null | grep -Eiq '(^|[^a-z])ru([^a-z]|$)'; then print -r -- "russian" > "$LANGUAGE_FILE"; else print -r -- "english" > "$LANGUAGE_FILE"; fi
@@ -193,7 +210,11 @@ codesign --verify --deep --strict "$APP_PATH"
 codesign --verify --deep --strict "$AGENT_APP_PATH"
 launchctl print "gui/${USER_ID}/${POLICY_LABEL}" >/dev/null
 launchctl print "gui/${USER_ID}/${APP_LABEL}" >/dev/null
-"$CLI_PATH" status >/dev/null
-[[ "$(sudo "$HELPER_PATH" status)" == "disabled" ]] || { print -u2 "Safe pmset reset verification failed"; exit 70; }
+POLICY_STATE="$("$CLI_PATH" status | /usr/bin/awk -F': ' 'NR == 1 { print $2 }')"
+EXPECTED_HELPER_STATE="$([[ "$POLICY_STATE" == "enabled" ]] && print enabled || print disabled)"
+[[ "$(sudo "$HELPER_PATH" status)" == "$EXPECTED_HELPER_STATE" ]] || {
+  print -u2 "Helper state does not match policy state: policy=${POLICY_STATE}, helper=$(sudo "$HELPER_PATH" status)"
+  exit 70
+}
 
-printf '\nInstalled and verified Lid Awake %s. Closed-lid mode is disabled by default.\n' "$VERSION"
+printf '\nInstalled and verified Lid Awake %s. Policy state: %s.\n' "$VERSION" "$POLICY_STATE"

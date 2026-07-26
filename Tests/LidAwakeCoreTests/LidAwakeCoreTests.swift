@@ -1,33 +1,32 @@
 import Foundation
-import Testing
+import XCTest
 @testable import LidAwakeCore
 
-@Suite("Lid Awake Core")
-struct LidAwakeCoreTests {
-    @Test func defaultSafetySettings() {
+final class LidAwakeCoreTests: XCTestCase {
+    func testDefaultSafetySettings() {
         let settings = LidAwakeSettings()
-        #expect(settings.requested == false)
-        #expect(settings.acOnly == true)
-        #expect(settings.batteryLimit == 20)
-        #expect(settings.maxDuration == 28_800)
-        #expect(settings.thermalProtection == true)
-        #expect(settings.notifications == true)
-        #expect(settings.launchAtLogin == true)
-        #expect(settings.lockOnLidClose == false)
-        #expect(settings.soundOnLidClose == false)
-        #expect(settings.lidCloseSoundVolume == 50)
-        #expect(settings.expiresAt == nil)
+        XCTAssertFalse(settings.requested)
+        XCTAssertTrue(settings.acOnly)
+        XCTAssertEqual(settings.batteryLimit, 20)
+        XCTAssertEqual(settings.maxDuration, 28_800)
+        XCTAssertTrue(settings.thermalProtection)
+        XCTAssertTrue(settings.notifications)
+        XCTAssertTrue(settings.launchAtLogin)
+        XCTAssertFalse(settings.lockOnLidClose)
+        XCTAssertFalse(settings.soundOnLidClose)
+        XCTAssertEqual(settings.lidCloseSoundVolume, 50)
+        XCTAssertNil(settings.expiresAt)
     }
 
-    @Test func supportPaths() {
-        #expect(LidAwakeController.settingsFile.lastPathComponent == "settings.json")
-        #expect(LidAwakeController.statusFile.lastPathComponent == "status.json")
-        #expect(LidAwakeController.eventLogFile.lastPathComponent == "events.log")
-        #expect(LidAwakeController.lastLidCloseFile.lastPathComponent == "last-lid-close.txt")
-        #expect(L10n.languageFile.lastPathComponent == "language.txt")
+    func testSupportPaths() {
+        XCTAssertEqual(LidAwakeController.settingsFile.lastPathComponent, "settings.json")
+        XCTAssertEqual(LidAwakeController.statusFile.lastPathComponent, "status.json")
+        XCTAssertEqual(LidAwakeController.eventLogFile.lastPathComponent, "events.log")
+        XCTAssertEqual(LidAwakeController.lastLidCloseFile.lastPathComponent, "last-lid-close.txt")
+        XCTAssertEqual(L10n.languageFile.lastPathComponent, "language.txt")
     }
 
-    @Test func statusCodableRoundTrip() throws {
+    func testStatusCodableRoundTrip() throws {
         let status = LidAwakeStatus(
             state: .blocked,
             reason: "Waiting for external power",
@@ -38,125 +37,117 @@ struct LidAwakeCoreTests {
             updatedAt: Date(timeIntervalSince1970: 100)
         )
         let data = try JSONEncoder().encode(status)
-        #expect(try JSONDecoder().decode(LidAwakeStatus.self, from: data) == status)
+        XCTAssertEqual(try JSONDecoder().decode(LidAwakeStatus.self, from: data), status)
     }
 
-    @Test func permanentModeEnabledWhenSafe() {
-        let settings = LidAwakeSettings(requested: true, expiresAt: nil)
+    func testPermanentModeEnabledWhenSafe() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, expiresAt: nil),
             power: PowerInfo(onAC: true, batteryPercent: 80),
             thermal: .nominal,
             now: Date()
         )
-        #expect(result.0 == .enabled)
-        #expect(result.3 == nil)
+        XCTAssertEqual(result.0, .enabled)
+        XCTAssertNil(result.3)
     }
 
-    @Test func temporaryModeRemainingTime() {
+    func testTemporaryModeRemainingTime() {
         let now = Date(timeIntervalSince1970: 100)
-        let settings = LidAwakeSettings(requested: true, expiresAt: now.addingTimeInterval(3600))
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, expiresAt: now.addingTimeInterval(3600)),
             power: PowerInfo(onAC: true, batteryPercent: 80),
             thermal: .nominal,
             now: now
         )
-        #expect(result.0 == .enabled)
-        #expect(result.3 == 3600)
+        XCTAssertEqual(result.0, .enabled)
+        XCTAssertEqual(result.3, 3600)
     }
 
-    @Test func disabledModeNeverBecomesActive() {
+    func testDisabledModeNeverBecomesActive() {
         let result = LidAwakeController.evaluate(
             settings: LidAwakeSettings(requested: false),
             power: PowerInfo(onAC: true, batteryPercent: 100),
             thermal: .nominal,
             now: Date()
         )
-        #expect(result.0 == .disabled)
+        XCTAssertEqual(result.0, .disabled)
     }
 
-    @Test func blockedWithoutExternalPower() {
-        let settings = LidAwakeSettings(requested: true)
+    func testBlockedWithoutExternalPower() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true),
             power: PowerInfo(onAC: false, batteryPercent: 80),
             thermal: .nominal,
             now: Date()
         )
-        #expect(result.0 == .blocked)
+        XCTAssertEqual(result.0, .blocked)
     }
 
-    @Test func blockedAtBatteryLimit() {
-        let settings = LidAwakeSettings(requested: true, acOnly: false, batteryLimit: 20)
+    func testBlockedAtBatteryLimit() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, acOnly: false, batteryLimit: 20),
             power: PowerInfo(onAC: false, batteryPercent: 20),
             thermal: .nominal,
             now: Date()
         )
-        #expect(result.0 == .blocked)
+        XCTAssertEqual(result.0, .blocked)
     }
 
-    @Test func batteryAboveLimitIsAllowed() {
-        let settings = LidAwakeSettings(requested: true, acOnly: false, batteryLimit: 20)
+    func testBatteryAboveLimitIsAllowed() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, acOnly: false, batteryLimit: 20),
             power: PowerInfo(onAC: false, batteryPercent: 21),
             thermal: .nominal,
             now: Date()
         )
-        #expect(result.0 == .enabled)
+        XCTAssertEqual(result.0, .enabled)
     }
 
-    @Test func blockedByThermalProtection() {
-        let settings = LidAwakeSettings(requested: true)
+    func testBlockedByThermalProtection() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true),
             power: PowerInfo(onAC: true, batteryPercent: 80),
             thermal: .serious,
             now: Date()
         )
-        #expect(result.0 == .blocked)
+        XCTAssertEqual(result.0, .blocked)
     }
 
-    @Test func thermalProtectionCanBeDisabled() {
-        let settings = LidAwakeSettings(requested: true, thermalProtection: false)
+    func testThermalProtectionCanBeDisabled() {
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, thermalProtection: false),
             power: PowerInfo(onAC: true, batteryPercent: 80),
             thermal: .critical,
             now: Date()
         )
-        #expect(result.0 == .enabled)
+        XCTAssertEqual(result.0, .enabled)
     }
 
-    @Test func expiryClearsRequest() {
+    func testExpiryClearsRequest() {
         let now = Date(timeIntervalSince1970: 100)
-        let settings = LidAwakeSettings(requested: true, expiresAt: now)
         let result = LidAwakeController.evaluate(
-            settings: settings,
+            settings: LidAwakeSettings(requested: true, expiresAt: now),
             power: PowerInfo(onAC: true, batteryPercent: 80),
             thermal: .nominal,
             now: now
         )
-        #expect(result.0 == .disabled)
-        #expect(result.2.requested == false)
-        #expect(result.2.expiresAt == nil)
+        XCTAssertEqual(result.0, .disabled)
+        XCTAssertFalse(result.2.requested)
+        XCTAssertNil(result.2.expiresAt)
     }
 
-    @Test func oldSettingsRemainDecodable() throws {
+    func testOldSettingsRemainDecodable() throws {
         let data = Data("{\"requested\":false,\"acOnly\":true,\"batteryLimit\":20,\"maxDuration\":28800}".utf8)
         let settings = try JSONDecoder().decode(LidAwakeSettings.self, from: data)
-        #expect(settings.thermalProtection == true)
-        #expect(settings.notifications == true)
-        #expect(settings.launchAtLogin == true)
-        #expect(settings.lockOnLidClose == false)
-        #expect(settings.soundOnLidClose == false)
-        #expect(settings.lidCloseSoundVolume == 50)
+        XCTAssertTrue(settings.thermalProtection)
+        XCTAssertTrue(settings.notifications)
+        XCTAssertTrue(settings.launchAtLogin)
+        XCTAssertFalse(settings.lockOnLidClose)
+        XCTAssertFalse(settings.soundOnLidClose)
+        XCTAssertEqual(settings.lidCloseSoundVolume, 50)
     }
 
-    @Test func newSettingsRoundTrip() throws {
+    func testNewSettingsRoundTrip() throws {
         let original = LidAwakeSettings(
             requested: true,
             acOnly: false,
@@ -170,10 +161,32 @@ struct LidAwakeCoreTests {
             lidCloseSoundVolume: 75
         )
         let data = try JSONEncoder().encode(original)
-        #expect(try JSONDecoder().decode(LidAwakeSettings.self, from: data) == original)
+        XCTAssertEqual(try JSONDecoder().decode(LidAwakeSettings.self, from: data), original)
     }
 
-    @Test func buildVersionIsNotEmpty() {
-        #expect(LidAwakeController.version.isEmpty == false)
+    func testBuildVersionIsNotEmpty() {
+        XCTAssertFalse(LidAwakeController.version.isEmpty)
+    }
+
+    func testParsesMatchingChecksum() {
+        let hash = String(repeating: "a", count: 64)
+        XCTAssertEqual(
+            UpdateVerification.parseSHA256("\(hash)  LidAwake-1.4.2.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg"),
+            hash
+        )
+        XCTAssertNil(UpdateVerification.parseSHA256("\(hash)  other.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg"))
+    }
+
+    func testCalculatesKnownSHA256() {
+        XCTAssertEqual(
+            UpdateVerification.sha256Hex(of: Data("abc".utf8)),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+    }
+
+    func testRecognizesImmediateScreenLock() {
+        XCTAssertTrue(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is immediate"))
+        XCTAssertTrue(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 0"))
+        XCTAssertFalse(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 5 seconds"))
     }
 }

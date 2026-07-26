@@ -7,14 +7,16 @@ VERSION="${1:-$PROJECT_VERSION}"
 APP_NAME="Lid Awake"
 AGENT_NAME="Lid Awake Agent"
 BUILD_NUMBER="$(print -r -- "$VERSION" | tr -cd '0-9')"
-APP_PATH="build/${APP_NAME}.app"
-AGENT_PATH="build/${AGENT_NAME}.app"
-PKG_ROOT="build/pkg-root"
-PKG_SCRIPTS="build/pkg-scripts"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lid-awake-package.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+APP_PATH="$STAGING_DIR/${APP_NAME}.app"
+AGENT_PATH="$STAGING_DIR/${AGENT_NAME}.app"
+PKG_ROOT="$STAGING_DIR/pkg-root"
+PKG_SCRIPTS="$STAGING_DIR/pkg-scripts"
 PKG_PATH="build/LidAwake-${VERSION}-unsigned.pkg"
 ICON_SOURCE="Assets/AppIcon.png"
-ICONSET_PATH="build/AppIcon.iconset"
-ICON_PATH="build/AppIcon.icns"
+ICONSET_PATH="$STAGING_DIR/AppIcon.iconset"
+ICON_PATH="$STAGING_DIR/AppIcon.icns"
 ENTITLEMENTS="Resources/LidAwake.entitlements"
 APP_IDENTITY="${LID_AWAKE_APP_SIGN_IDENTITY:-}"
 
@@ -91,6 +93,12 @@ cat > "$AGENT_PATH/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
+xattr -cr "$APP_PATH" "$AGENT_PATH"
+for bundle in "$APP_PATH" "$AGENT_PATH"; do
+  xattr -d com.apple.FinderInfo "$bundle" 2>/dev/null || true
+  xattr -d 'com.apple.fileprovider.fpfs#P' "$bundle" 2>/dev/null || true
+done
+
 if [[ -n "$APP_IDENTITY" ]]; then
   codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$APP_IDENTITY" "$APP_PATH"
   codesign --force --options runtime --timestamp --sign "$APP_IDENTITY" "$AGENT_PATH"
@@ -104,6 +112,7 @@ codesign --verify --deep --strict "$AGENT_PATH"
 
 ditto "$APP_PATH" "$PKG_ROOT/Applications/${APP_NAME}.app"
 ditto "$AGENT_PATH" "$PKG_ROOT/Library/Application Support/Lid Awake/${AGENT_NAME}.app"
+xattr -cr "$PKG_ROOT/Applications/${APP_NAME}.app" "$PKG_ROOT/Library/Application Support/Lid Awake/${AGENT_NAME}.app"
 install -m 755 .build/release/lid-awake "$PKG_ROOT/usr/local/bin/lid-awake"
 install -m 755 scripts/lid-awake-helper "$PKG_ROOT/usr/local/libexec/lid-awake-helper"
 

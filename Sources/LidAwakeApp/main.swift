@@ -318,14 +318,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
             let releaseURL = (json["html_url"] as? String).flatMap(URL.init(string:))
             let assets = json["assets"] as? [[String: Any]] ?? []
-            let packages = assets.compactMap { asset -> (name: String, url: URL)? in
+            let downloadableAssets = assets.compactMap { asset -> (name: String, url: URL)? in
                 guard let name = asset["name"] as? String,
-                      name.lowercased().hasSuffix(".pkg"),
                       let rawURL = asset["browser_download_url"] as? String,
                       let url = URL(string: rawURL) else { return nil }
                 return (name, url)
             }
+            let packages = downloadableAssets.filter { $0.name.lowercased().hasSuffix(".pkg") }
             let package = packages.first { $0.name.localizedCaseInsensitiveContains(latest) } ?? packages.first
+            let verifiedPackage = package.flatMap { package -> (name: String, url: URL, checksumURL: URL)? in
+                let checksumName = package.name + ".sha256"
+                guard let checksumURL = downloadableAssets.first(where: {
+                    $0.name.caseInsensitiveCompare(checksumName) == .orderedSame
+                })?.url else { return nil }
+                return (package.name, package.url, checksumURL)
+            }
 
             DispatchQueue.main.async {
                 guard latest.compare(current, options: .numeric) == .orderedDescending else {
@@ -335,11 +342,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 let alert = NSAlert()
                 alert.messageText = self.t("Version \(latest) is available", "Доступна версия \(latest)")
-                if package != nil {
-                    alert.informativeText = self.t("The installer package will be downloaded and opened in the standard macOS Installer.", "Установочный пакет будет скачан и открыт в стандартном установщике macOS.")
+                if verifiedPackage != nil {
+                    alert.informativeText = self.t("The installer checksum and trusted macOS signature will be verified before it is opened.", "Перед открытием будут проверены контрольная сумма и доверенная подпись установщика macOS.")
                     alert.addButton(withTitle: self.t("Install update", "Установить обновление"))
                 } else {
-                    alert.informativeText = self.t("The release does not contain a .pkg installer.", "В релизе не найден установочный пакет .pkg.")
+                    alert.informativeText = self.t("The release does not contain a verifiable .pkg installer and matching .sha256 file.", "В релизе нет проверяемого .pkg-установщика и соответствующего файла .sha256.")
                     alert.addButton(withTitle: self.t("Open release", "Открыть релиз"))
                 }
                 alert.addButton(withTitle: self.t("Open release notes", "Открыть описание"))
@@ -347,8 +354,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                 switch alert.runModal() {
                 case .alertFirstButtonReturn:
-                    if let package {
-                        self.downloadAndOpenUpdate(packageURL: package.url, filename: package.name, version: latest)
+                    if let verifiedPackage {
+                        self.downloadAndOpenUpdate(
+                            packageURL: verifiedPackage.url,
+                            checksumURL: verifiedPackage.checksumURL,
+                            filename: verifiedPackage.name,
+                            version: latest
+                        )
                     } else if let releaseURL {
                         NSWorkspace.shared.open(releaseURL)
                     }
@@ -361,7 +373,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }.resume()
     }
 
-    private func downloadAndOpenUpdate(packageURL: URL, filename: String, version: String) {
+    private func downloadAndOpenUpdate(packageURL: URL, checksumURL: URL, filename: String, version: String) {
+        var checksumRequest = URLRequest(url: checksumURL)
+        checksumRequest.setValue("LidAwake/\(version)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: checksumRequest) { [weak self] data, response, error in
+            guard let self else { return }
+            guard error == nil,
+                  let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  let data,
+                  let text = String(data: data, encoding: .utf8),
+                  let expectedChecksum = UpdateVerification.parseSHA256(text, expectedFilename: filename) else {
+                DispatchQueue.main.async {
+                    self.showAlert(
+                        title: self.t("Update verification failed", "Не удалось проверить обновление"),
+                        message: self.t("The release checksum is missing or invalid.", "Контрольная сумма релиза отсутствует или некорректна."),
+                        style: .warning
+                    )
+                }
+                return
+            }
+            self.downloadVerifiedPackage(
+                packageURL: packageURL,
+                filename: filename,
+                version: version,
+                expectedChecksum: expectedChecksum
+            )
+        }.resume()
+    }
+
+    private func downloadVerifiedPackage(packageURL: URL, filename: String, version: String, expectedChecksum: String) {
         var request = URLRequest(url: packageURL)
         request.setValue("LidAwake/\(version)", forHTTPHeaderField: "User-Agent")
 
@@ -392,6 +433,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard values.isRegularFile == true, (values.fileSize ?? 0) > 0 else {
                     throw NSError(domain: "LidAwake.Update", code: 2, userInfo: [NSLocalizedDescriptionKey: self.t("The downloaded package is empty or damaged.", "Загруженный пакет пуст или повреждён.")])
                 }
+                let packageData = try Data(contentsOf: destination, options: .mappedIfSafe)
+                guard UpdateVerification.sha256Hex(of: packageData) == expectedChecksum else {
+                    throw NSError(domain: "LidAwake.Update", code: 3, userInfo: [NSLocalizedDescriptionKey: self.t("The package checksum does not match the release checksum.", "Контрольная сумма пакета не совпадает с опубликованной.")])
+                }
+                guard self.verifyInstallerPackage(at: destination) else {
+                    throw NSError(domain: "LidAwake.Update", code: 4, userInfo: [NSLocalizedDescriptionKey: self.t("macOS did not accept the package as signed, trusted, and notarized.", "macOS не подтвердила, что пакет подписан, является доверенным и нотарифицирован.")])
+                }
                 DispatchQueue.main.async {
                     if !NSWorkspace.shared.open(destination) {
                         self.showAlert(title: self.t("Could not open Installer", "Не удалось открыть установщик"), message: self.t("The package was saved at: \(destination.path)", "Пакет сохранён: \(destination.path)"), style: .warning)
@@ -401,6 +449,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async { self.showAlert(title: self.t("Could not prepare update", "Не удалось подготовить обновление"), message: error.localizedDescription, style: .warning) }
             }
         }.resume()
+    }
+
+    private func verifyInstallerPackage(at url: URL) -> Bool {
+        func succeeds(_ executable: String, _ arguments: [String]) -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return false }
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        }
+
+        return succeeds("/usr/sbin/pkgutil", ["--check-signature", url.path])
+            && succeeds("/usr/sbin/spctl", ["--assess", "--type", "install", url.path])
     }
 
     @objc private func quit() { NSApp.terminate(nil) }

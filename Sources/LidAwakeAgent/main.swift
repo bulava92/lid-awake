@@ -16,6 +16,9 @@ final class AgentRuntime {
     private var rootDomain: io_service_t = 0
     private var powerSourceRunLoopSource: CFRunLoopSource?
     private var pendingPowerReconcile: DispatchWorkItem?
+    private var pendingLidCloseActions: DispatchWorkItem?
+    private var notificationPermissionRequested = false
+    private static let lidCloseDebounceSeconds: TimeInterval = 2
 
     init() {
         previousLidClosed = controller.readLidClosed()
@@ -26,7 +29,6 @@ final class AgentRuntime {
     }
 
     func start() {
-        requestNotificationPermission()
         installLidObserver()
         installPowerSourceObserver()
         evaluatePolicy(force: true)
@@ -96,6 +98,7 @@ final class AgentRuntime {
             let shouldForce = force || Date().timeIntervalSince(lastForcedApply) >= 300
             let status = try controller.reconcile(forceApply: shouldForce)
             if shouldForce { lastForcedApply = Date() }
+            ensureNotificationPermissionIfNeeded(status.settings)
             notifyTransitionIfNeeded(status)
             lastStatus = status
         } catch {
@@ -107,6 +110,11 @@ final class AgentRuntime {
     fileprivate func handleLidStateChange() {
         guard let lidClosed = controller.readLidClosed() else { return }
         defer { previousLidClosed = lidClosed }
+        if !lidClosed {
+            pendingLidCloseActions?.cancel()
+            pendingLidCloseActions = nil
+            return
+        }
         guard previousLidClosed != true, lidClosed else { return }
 
         evaluatePolicy(force: false)
@@ -120,6 +128,23 @@ final class AgentRuntime {
                 controller.appendEvent("Could not play lid-close sound")
             }
         }
+
+        pendingLidCloseActions?.cancel()
+        let actions = DispatchWorkItem { [weak self] in
+            self?.performDebouncedLidCloseActions()
+        }
+        pendingLidCloseActions = actions
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lidCloseDebounceSeconds, execute: actions)
+    }
+
+    private func performDebouncedLidCloseActions() {
+        pendingLidCloseActions = nil
+        guard controller.readLidClosed() == true else { return }
+
+        evaluatePolicy(force: false)
+        guard let status = lastStatus ?? controller.loadStatus(),
+              status.settings.requested,
+              status.state == .enabled else { return }
 
         var locked = false
         if status.settings.lockOnLidClose {
@@ -141,7 +166,9 @@ final class AgentRuntime {
         }
     }
 
-    private func requestNotificationPermission() {
+    private func ensureNotificationPermissionIfNeeded(_ settings: LidAwakeSettings) {
+        guard settings.notifications, !notificationPermissionRequested else { return }
+        notificationPermissionRequested = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error { self.controller.appendEvent("Notification permission error: \(error.localizedDescription)") }
             else if !granted { self.controller.appendEvent("Notification permission not granted") }
@@ -174,6 +201,7 @@ final class AgentRuntime {
 
     deinit {
         pendingPowerReconcile?.cancel()
+        pendingLidCloseActions?.cancel()
         if let powerSourceRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .commonModes)
         }

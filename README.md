@@ -20,6 +20,7 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 - Thermal protection.
 - Immediate charger updates through IOKit.
 - Independent lid-close actions: turn off the display, lock the session, and play a sound.
+- The lid-close sound plays immediately; screen actions run only after the lid remains closed for a short debounce interval.
 - Native notifications, diagnostics, rotating logs, CLI, and update checks.
 - `.pkg` building, ad-hoc signing, Developer ID signing, and notarization support.
 
@@ -79,6 +80,8 @@ The actions are independent:
 With system volume at 50%, 100% in Lid Awake means the loudest signal the app can produce without changing the system volume. It does not bypass the system output level.
 
 macOS may require a password or Touch ID after display sleep according to **System Settings → Lock Screen**. Display sleep may therefore look like an explicit lock even when Lock screen is disabled in Lid Awake.
+
+On macOS versions where the legacy `CGSession` utility is unavailable, Lid Awake requests immediate display sleep instead. This fallback is used only when **System Settings → Lock Screen** is configured to require a password immediately; otherwise Lid Awake reports that locking failed rather than claiming the session is secure.
 
 ## VPN clients and lid-close events
 
@@ -177,7 +180,7 @@ Logs rotate at approximately 1 MB.
 
 ## Updates
 
-**Check for updates…** reads the latest GitHub release and can open its release page.
+**Check for updates…** reads the latest GitHub release. Automatic installer opening requires a matching `.pkg.sha256` asset, a matching SHA-256 checksum, and a package accepted by macOS as signed, trusted, and notarized.
 
 ## Versioning, signing, and notarization
 

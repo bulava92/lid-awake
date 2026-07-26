@@ -133,6 +133,32 @@ func runSelfTests() throws {
     let roundTrip = try JSONDecoder().decode(LidAwakeSettings.self, from: JSONEncoder().encode(original))
     try expect(roundTrip == original, "settings Codable round-trip must preserve all values")
     try expect(LidAwakeController.version.isEmpty == false, "build version must not be empty")
+
+    let checksum = String(repeating: "a", count: 64)
+    try expect(
+        UpdateVerification.parseSHA256("\(checksum)  LidAwake-1.4.2.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg") == checksum,
+        "matching release checksum must be parsed"
+    )
+    try expect(
+        UpdateVerification.parseSHA256("\(checksum)  other.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg") == nil,
+        "checksum for another file must be rejected"
+    )
+    try expect(
+        UpdateVerification.sha256Hex(of: Data("abc".utf8)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "SHA-256 calculation must match the known vector"
+    )
+    try expect(
+        LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is immediate"),
+        "immediate screen-lock delay must be recognized"
+    )
+    try expect(
+        LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 0"),
+        "zero screen-lock delay must be recognized"
+    )
+    try expect(
+        !LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 5 seconds"),
+        "non-zero screen-lock delay must be rejected"
+    )
 }
 
 do {

@@ -16,7 +16,7 @@ case "$1" in
     print "disabled"
     ;;
   status)
-    value="$(/usr/bin/pmset -g custom | /usr/bin/awk '$1 == "disablesleep" { print $2; exit }')"
+    value="$(/usr/bin/pmset -g | /usr/bin/awk 'tolower($1) == "sleepdisabled" { print $2; exit }')"
     if [[ "$value" == "1" ]]; then
       print "enabled"
     else

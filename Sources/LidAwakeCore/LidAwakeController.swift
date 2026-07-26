@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CryptoKit
 
 public enum LidAwakeState: String, Codable { case enabled, disabled, blocked, unknown }
 public enum ThermalLevel: String, Codable { case nominal, fair, serious, critical, unknown }
@@ -100,6 +101,25 @@ public struct LidAwakeStatus: Codable, Equatable {
     public var thermal: ThermalLevel
     public var remainingSeconds: Int?
     public var updatedAt: Date
+}
+
+public enum UpdateVerification {
+    public static func sha256Hex(of data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func parseSHA256(_ text: String, expectedFilename: String) -> String? {
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let fields = rawLine.split(whereSeparator: \.isWhitespace)
+            guard let first = fields.first else { continue }
+            let hash = String(first).lowercased()
+            guard hash.count == 64, hash.allSatisfy({ $0.isHexDigit }) else { continue }
+            if fields.count == 1 { return hash }
+            let filename = fields.dropFirst().joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "*"))
+            if URL(fileURLWithPath: filename).lastPathComponent == expectedFilename { return hash }
+        }
+        return nil
+    }
 }
 
 public struct LidAwakeController {
@@ -228,8 +248,24 @@ public struct LidAwakeController {
     }
 
     @discardableResult public func lockScreen() -> Bool {
-        guard FileManager.default.isExecutableFile(atPath: Self.cgSessionPath) else { return false }
-        return runStatus(Self.cgSessionPath, ["-suspend"])
+        if FileManager.default.isExecutableFile(atPath: Self.cgSessionPath),
+           runStatus(Self.cgSessionPath, ["-suspend"]) {
+            return true
+        }
+
+        guard screenLockDelayIsImmediate() else { return false }
+        return runStatus("/usr/bin/pmset", ["displaysleepnow"])
+    }
+
+    public static func screenLockDelayIsImmediate(output: String) -> Bool {
+        let normalized = output.lowercased()
+        return normalized.contains("screenlock delay is immediate")
+            || normalized.contains("screen lock delay is immediate")
+            || normalized.range(of: #"screen\s*lock.*delay.*(?:0|immediate)"#, options: .regularExpression) != nil
+    }
+
+    public func screenLockDelayIsImmediate() -> Bool {
+        Self.screenLockDelayIsImmediate(output: runIncludingStderr("/usr/sbin/sysadminctl", ["-screenLock", "status"]))
     }
 
     @discardableResult public func playLidCloseSound(volumePercent: Int) -> Bool {
@@ -260,6 +296,7 @@ public struct LidAwakeController {
         mode: \(settings.expiresAt == nil ? "permanent" : "temporary")
         display-sleep-on-lid-close: \(settings.displaySleepOnLidClose)
         lock-on-lid-close: \(settings.lockOnLidClose)
+        screen-lock-delay-immediate: \(screenLockDelayIsImmediate())
         sound-on-lid-close: \(settings.soundOnLidClose)
         sound-volume: \(settings.lidCloseSoundVolume)%
         lid-closed: \(readLidClosed().map(String.init) ?? "unknown")
@@ -314,6 +351,14 @@ public struct LidAwakeController {
     @discardableResult private func run(_ path: String, _ arguments: [String]) -> String {
         let process = Process(); let pipe = Pipe(); process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments
         process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "" }; process.waitUntilExit()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
+    private func runIncludingStderr(_ path: String, _ arguments: [String]) -> String {
+        let process = Process(); let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: path); process.arguments = arguments
+        process.standardOutput = pipe; process.standardError = pipe
         guard (try? process.run()) != nil else { return "" }; process.waitUntilExit()
         return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
     }

@@ -23,6 +23,10 @@ let package = Package(
             dependencies: ["LidAwakeCore"],
             linkerSettings: [.linkedFramework("AppKit")]
         ),
-        .executableTarget(name: "LidAwakeSelfTest", dependencies: ["LidAwakeCore"])
+        .executableTarget(name: "LidAwakeSelfTest", dependencies: ["LidAwakeCore"]),
+        .testTarget(
+            name: "LidAwakeCoreTests",
+            dependencies: ["LidAwakeCore"]
+        )
     ]
 )
