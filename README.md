@@ -56,16 +56,16 @@ Safety constraints do not cancel the user's request. Missing external power, low
 
 ## Weekly schedule
 
-Each interval defines weekdays, start and end time, and whether Lid Awake should keep the Mac active or allow normal sleep. Intervals may cross midnight. Outside configured intervals the schedule can allow sleep, keep the Mac awake, or preserve the current manual state.
+Each interval defines weekdays, start and end time, and the action to take when the lid is closed during that interval: do nothing, keep awake, keep awake for 15 minutes, or keep awake for 1 hour. Intervals may cross midnight. Outside configured intervals, Lid Awake does nothing.
 
 The default template is disabled until saved and enabled:
 
 ```text
 Every day  08:00–23:00  Keep awake
-Every day  23:00–08:00  Allow normal sleep
+Every day  23:00–08:00  Do nothing
 ```
 
-A temporary mode has priority over the schedule. The scheduler applies the current interval after the temporary mode ends. Manual Enable or Disable remains in effect until the next schedule boundary or a scheduler refresh after wake, clock, or time-zone changes.
+The schedule does not change the mode when an interval starts or ends. A timed action starts afresh every time the lid is closed during its active interval. A manually selected temporary mode remains in effect until it expires.
 
 ## Power and battery handling
 

@@ -201,12 +201,14 @@ final class LidAwakeCoreTests: XCTestCase {
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         let schedule = AwakeSchedule(enabled: true, fallback: .off, rules: [
-            try AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .on),
+            try AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .minutes15),
             try AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("23:00"), end: AwakeScheduleTime("08:00"), mode: .off)
         ])
         try schedule.validate()
-        XCTAssertEqual(schedule.mode(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar), .on)
-        XCTAssertEqual(schedule.mode(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar), .off)
+        XCTAssertEqual(schedule.activeRule(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar)?.mode, .minutes15)
+        XCTAssertEqual(schedule.activeRule(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar)?.mode, .off)
+        XCTAssertEqual(AwakeScheduleMode.minutes15.lidCloseDuration, 900)
+        XCTAssertEqual(AwakeScheduleMode.hour1.lidCloseDuration, 3600)
         XCTAssertEqual(schedule.nextBoundary(after: formatter.date(from: "2026-07-20 22:00")!, calendar: calendar), formatter.date(from: "2026-07-20 23:00")!)
     }
 

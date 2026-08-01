@@ -108,6 +108,38 @@ final class AgentRuntime {
         }
     }
 
+    private func applyScheduleActionForLidClose() -> Bool {
+        guard let rule = try? AwakeScheduleStore().load().activeRule(at: Date()) else { return false }
+        do {
+            switch rule.mode {
+            case .off:
+                controller.appendEvent(L10n.text(
+                    "Schedule action on lid close: do nothing",
+                    "Действие расписания при закрытии крышки: ничего не делать"
+                ))
+                return false
+            case .on:
+                try controller.requestEnabled(recordScheduleOverride: false)
+                controller.appendEvent(L10n.text(
+                    "Schedule action on lid close: keep awake",
+                    "Действие расписания при закрытии крышки: удерживать активным"
+                ))
+            case .minutes15, .hour1:
+                guard let duration = rule.mode.lidCloseDuration else { return false }
+                try controller.requestTemporary(duration: duration)
+                controller.appendEvent(L10n.text(
+                    "Schedule action on lid close: keep awake for \(duration / 60) minutes",
+                    "Действие расписания при закрытии крышки: удерживать активным \(duration / 60) мин."
+                ))
+            }
+            evaluatePolicy(force: true)
+            return true
+        } catch {
+            controller.appendEvent("Could not apply schedule action on lid close: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     fileprivate func handleLidStateChange() {
         guard let lidClosed = controller.readLidClosed() else { return }
         defer { previousLidClosed = lidClosed }
@@ -119,9 +151,7 @@ final class AgentRuntime {
         guard previousLidClosed != true, lidClosed else { return }
 
         evaluatePolicy(force: false)
-        guard let status = lastStatus ?? controller.loadStatus(),
-              status.settings.requested,
-              status.state == .enabled else { return }
+        guard let status = lastStatus ?? controller.loadStatus() else { return }
 
         if status.settings.skipLidActionsWithExternalDisplay, hasExternalDisplay() {
             controller.appendEvent(L10n.text(
@@ -137,6 +167,12 @@ final class AgentRuntime {
                 controller.appendEvent("Could not play lid-close sound")
             }
         }
+
+        _ = applyScheduleActionForLidClose()
+        evaluatePolicy(force: false)
+        guard let updatedStatus = lastStatus ?? controller.loadStatus(),
+              updatedStatus.settings.requested,
+              updatedStatus.state == .enabled else { return }
 
         pendingLidCloseActions?.cancel()
         let actions = DispatchWorkItem { [weak self] in

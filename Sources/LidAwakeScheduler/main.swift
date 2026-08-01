@@ -25,10 +25,9 @@ private func temporaryModeIsActive(now: Date = Date()) -> Bool {
 
 private func status(now: Date = Date()) throws -> ScheduleStatus {
     let schedule = try store.load()
-    let manual = store.activeManualOverride(now: now)
     return ScheduleStatus(
         enabled: schedule.enabled,
-        mode: manual ?? schedule.mode(at: now),
+        mode: schedule.activeRule(at: now)?.mode,
         nextBoundary: schedule.nextBoundary(after: now),
         deferredByTemporaryMode: temporaryModeIsActive(now: now)
     )
@@ -36,13 +35,6 @@ private func status(now: Date = Date()) throws -> ScheduleStatus {
 
 @discardableResult
 private func apply(now: Date = Date()) throws -> Bool {
-    let current = try status(now: now)
-    guard current.enabled, !current.deferredByTemporaryMode, let mode = current.mode else { return false }
-    let settings = controller.loadSettings()
-    let requested = mode == .on
-    guard settings.requested != requested || settings.expiresAt != nil else { return false }
-    if requested { try controller.requestEnabled(recordScheduleOverride: false) }
-    else { try controller.requestDisabled(recordScheduleOverride: false) }
     return true
 }
 
@@ -51,7 +43,6 @@ private func setEnabled(_ enabled: Bool) throws {
     schedule.enabled = enabled
     try store.save(schedule)
     store.clearManualOverride()
-    if enabled { _ = try apply() }
 }
 
 private func printStatus(_ value: ScheduleStatus) {

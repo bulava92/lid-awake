@@ -26,6 +26,16 @@ public struct AwakeScheduleTime: Codable, Equatable, Hashable, Sendable, Compara
 public enum AwakeScheduleMode: String, Codable, CaseIterable, Sendable {
     case on
     case off
+    case minutes15
+    case hour1
+
+    public var lidCloseDuration: Int? {
+        switch self {
+        case .minutes15: return 15 * 60
+        case .hour1: return 60 * 60
+        case .on, .off: return nil
+        }
+    }
 }
 
 public struct AwakeScheduleRule: Codable, Equatable, Identifiable, Sendable {
@@ -101,6 +111,13 @@ public struct AwakeSchedule: Codable, Equatable, Sendable {
         let weekday = Self.isoWeekday(for: date, calendar: calendar)
         let minute = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
         return rules.first(where: { $0.enabled && $0.matches(weekday: weekday, minute: minute) })?.mode ?? fallback.mode
+    }
+
+    public func activeRule(at date: Date, calendar: Calendar = .current) -> AwakeScheduleRule? {
+        guard enabled else { return nil }
+        let weekday = Self.isoWeekday(for: date, calendar: calendar)
+        let minute = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
+        return rules.first(where: { $0.enabled && $0.matches(weekday: weekday, minute: minute) })
     }
 
     public func nextBoundary(after date: Date, calendar: Calendar = .current) -> Date? {

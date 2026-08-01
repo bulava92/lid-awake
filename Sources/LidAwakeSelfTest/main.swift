@@ -170,14 +170,15 @@ func runSelfTests() throws {
     formatter.timeZone = calendar.timeZone
     formatter.dateFormat = "yyyy-MM-dd HH:mm"
     let schedule = AwakeSchedule(enabled: true, fallback: .off, rules: [
-        try AwakeScheduleRule(id: "day", days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .on),
+        try AwakeScheduleRule(id: "day", days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .minutes15),
         try AwakeScheduleRule(id: "night", days: Set(1...7), start: AwakeScheduleTime("23:00"), end: AwakeScheduleTime("08:00"), mode: .off)
     ])
     try schedule.validate()
-    try expect(schedule.mode(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar) == .on, "day schedule must enable Lid Awake")
-    try expect(schedule.mode(at: formatter.date(from: "2026-07-20 23:30")!, calendar: calendar) == .off, "night schedule must disable Lid Awake")
+    try expect(schedule.activeRule(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar)?.mode == .minutes15, "day schedule must select the 15-minute lid-close action")
+    try expect(schedule.activeRule(at: formatter.date(from: "2026-07-20 23:30")!, calendar: calendar)?.mode == .off, "night schedule must select no action")
     try expect(schedule.mode(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar) == .off, "overnight schedule must extend into the next day")
-    try expect(schedule.mode(at: formatter.date(from: "2026-07-21 08:00")!, calendar: calendar) == .on, "schedule boundary must switch modes")
+    try expect(schedule.activeRule(at: formatter.date(from: "2026-07-21 08:00")!, calendar: calendar)?.mode == .minutes15, "schedule boundary must switch actions")
+    try expect(AwakeScheduleMode.minutes15.lidCloseDuration == 900 && AwakeScheduleMode.hour1.lidCloseDuration == 3600, "timed schedule actions must use the configured durations")
     try expect(schedule.nextBoundary(after: formatter.date(from: "2026-07-20 22:00")!, calendar: calendar) == formatter.date(from: "2026-07-20 23:00")!, "next schedule boundary must be calculated")
 
     let overlap = AwakeSchedule(enabled: true, rules: [

@@ -36,7 +36,6 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         defer: false
     )
     private let enabled = NSButton(checkboxWithTitle: t("Enable schedule", "Использовать расписание"), target: nil, action: nil)
-    private let fallback = NSPopUpButton()
     private let table = NSTableView()
     private let ruleEnabled = NSButton(checkboxWithTitle: t("Interval enabled", "Интервал включён"), target: nil, action: nil)
     private var dayButtons: [NSButton] = []
@@ -61,6 +60,11 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
     private func buildUI() {
         window.title = t("Lid Awake Schedule", "Расписание Lid Awake")
         window.minSize = NSSize(width: 760, height: 500)
@@ -72,8 +76,8 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         let title = NSTextField(labelWithString: t("Weekly schedule", "Недельное расписание"))
         title.font = .systemFont(ofSize: 20, weight: .semibold)
         let subtitle = NSTextField(wrappingLabelWithString: t(
-            "Choose when Lid Awake should keep the Mac active or allow normal sleep.",
-            "Выберите, когда Lid Awake должен удерживать Mac активным или разрешать обычный сон."
+            "Choose what Lid Awake should do when you close the lid during each interval.",
+            "Выберите, что Lid Awake должен делать при закрытии крышки в каждом интервале."
         ))
         subtitle.textColor = .secondaryLabelColor
         let heading = NSStackView(views: [title, subtitle])
@@ -82,17 +86,9 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         heading.spacing = 4
 
         enabled.state = schedule.enabled ? .on : .off
-        fallback.addItems(withTitles: [
-            t("Allow normal sleep", "Разрешать обычный сон"),
-            t("Keep awake", "Удерживать активным"),
-            t("Keep manual state", "Сохранять ручной режим")
-        ])
-        fallback.selectItem(at: schedule.fallback == .off ? 0 : schedule.fallback == .on ? 1 : 2)
-        let fallbackRow = NSStackView(views: [NSTextField(labelWithString: t("Outside intervals:", "Вне интервалов:")), fallback])
-        fallbackRow.orientation = .horizontal
-        fallbackRow.alignment = .centerY
-        fallbackRow.spacing = 8
-        let settings = NSStackView(views: [enabled, NSView(), fallbackRow])
+        let outsideIntervals = NSTextField(labelWithString: t("Outside intervals: Do nothing", "Вне интервалов: ничего не делать"))
+        outsideIntervals.textColor = .secondaryLabelColor
+        let settings = NSStackView(views: [enabled, NSView(), outsideIntervals])
         settings.orientation = .horizontal
         settings.alignment = .centerY
         let header = NSStackView(views: [heading, settings])
@@ -188,7 +184,12 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         times.orientation = .horizontal
         times.distribution = .fillEqually
         times.spacing = 18
-        mode.addItems(withTitles: [t("Keep awake", "Удерживать активным"), t("Allow normal sleep", "Разрешать обычный сон")])
+        mode.addItems(withTitles: [
+            t("Keep awake", "Удерживать активным"),
+            t("Do nothing", "Ничего не делать"),
+            t("Keep awake for 15 minutes", "Удерживать активным 15 минут"),
+            t("Keep awake for 1 hour", "Удерживать активным 1 час")
+        ])
         mode.target = self
         mode.action = #selector(updateRule)
         let hint = NSTextField(wrappingLabelWithString: t(
@@ -236,7 +237,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
             cell.addSubview(label)
             NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8), label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
         }
-        label.stringValue = "\(compactDays(rule.days))  \(rule.start.stringValue)–\(rule.end.stringValue)  ·  \(rule.mode == .on ? t("On", "Вкл") : t("Off", "Выкл"))"
+        label.stringValue = "\(compactDays(rule.days))  \(rule.start.stringValue)–\(rule.end.stringValue)  ·  \(actionTitle(rule.mode))"
         label.textColor = rule.enabled ? .labelColor : .secondaryLabelColor
         return cell
     }
@@ -255,6 +256,33 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         return days.sorted().map { names[$0 - 1] }.joined(separator: ",")
     }
 
+    private func actionTitle(_ mode: AwakeScheduleMode) -> String {
+        switch mode {
+        case .on: return t("Keep awake", "Удерживать активным")
+        case .off: return t("Do nothing", "Ничего не делать")
+        case .minutes15: return t("15 minutes", "15 минут")
+        case .hour1: return t("1 hour", "1 час")
+        }
+    }
+
+    private func modeIndex(_ mode: AwakeScheduleMode) -> Int {
+        switch mode {
+        case .on: return 0
+        case .off: return 1
+        case .minutes15: return 2
+        case .hour1: return 3
+        }
+    }
+
+    private func scheduleMode(_ index: Int) -> AwakeScheduleMode {
+        switch index {
+        case 0: return .on
+        case 2: return .minutes15
+        case 3: return .hour1
+        default: return .off
+        }
+    }
+
     private func selectRule(_ index: Int) {
         changingSelection = true
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
@@ -270,7 +298,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         for button in dayButtons { button.state = rule.days.contains(button.tag) ? .on : .off }
         startPicker.dateValue = date(for: rule.start)
         endPicker.dateValue = date(for: rule.end)
-        mode.selectItem(at: rule.mode == .on ? 0 : 1)
+        mode.selectItem(at: modeIndex(rule.mode))
         setEditorEnabled(true)
     }
 
@@ -290,7 +318,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         schedule.rules[index].days = days
         schedule.rules[index].start = start
         schedule.rules[index].end = end
-        schedule.rules[index].mode = mode.indexOfSelectedItem == 0 ? .on : .off
+        schedule.rules[index].mode = scheduleMode(mode.indexOfSelectedItem)
         if reload { table.reloadData() }
     }
 
@@ -314,7 +342,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     @objc private func save() {
         saveControls()
         schedule.enabled = enabled.state == .on
-        schedule.fallback = fallback.indexOfSelectedItem == 0 ? .off : fallback.indexOfSelectedItem == 1 ? .on : .manual
+        schedule.fallback = .off
         do {
             try store.save(schedule)
             store.clearManualOverride()
@@ -331,6 +359,15 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
 }
 
 let app = NSApplication.shared
+let currentPID = ProcessInfo.processInfo.processIdentifier
+let executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.arguments[0]).standardizedFileURL
+if let existing = NSWorkspace.shared.runningApplications.first(where: {
+    $0.processIdentifier != currentPID && $0.executableURL?.standardizedFileURL == executableURL
+}) {
+    existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    exit(0)
+}
 let delegate = ScheduleEditorController()
 app.delegate = delegate
+app.setActivationPolicy(.regular)
 app.run()
