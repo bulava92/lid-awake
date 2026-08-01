@@ -118,6 +118,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(submenu(t("Temporary mode", "Временный режим"), temporaryMenu))
 
+        let scheduleEnabled = (try? AwakeScheduleStore().load().enabled) == true
+        let scheduleToggle = item(t("Schedule enabled", "Расписание включено"), #selector(toggleSchedule))
+        scheduleToggle.state = scheduleEnabled ? .on : .off
+        menu.addItem(scheduleToggle)
+        menu.addItem(item(t("Configure schedule…", "Настроить расписание…"), #selector(openScheduleEditor)))
+
         let settingsMenu = NSMenu()
         let ac = item(t("Only while connected to power", "Только при подключённом питании"), #selector(toggleAC)); ac.state = settings.acOnly ? .on : .off; settingsMenu.addItem(ac)
 
@@ -235,6 +241,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert(); alert.alertStyle = style; alert.messageText = title; alert.informativeText = message; alert.runModal()
     }
 
+    @discardableResult private func run(_ path: String, _ arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
     @objc private func togglePermanent() {
         let settings = controller.loadSettings()
         perform {
@@ -252,6 +269,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func enableTemporary(_ sender: NSMenuItem) { perform { try controller.requestTemporary(duration: sender.tag) } }
     @objc private func cancelTemporary() { perform { try controller.cancelTemporary() } }
+
+    @objc private func toggleSchedule() {
+        perform {
+            let store = AwakeScheduleStore()
+            var schedule = try store.load()
+            schedule.enabled.toggle()
+            try store.save(schedule)
+            guard run("/usr/local/libexec/lid-awake-scheduler", [schedule.enabled ? "enable" : "disable"]) else {
+                throw LidAwakeError.commandFailed(t("Could not apply schedule.", "Не удалось применить расписание."))
+            }
+        }
+    }
+
+    @objc private func openScheduleEditor() {
+        let path = "/usr/local/libexec/lid-awake-schedule-editor"
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            showAlert(title: "Lid Awake", message: t("Schedule editor is not installed.", "Редактор расписания не установлен."), style: .warning)
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        do { try process.run() }
+        catch { showAlert(title: "Lid Awake", message: error.localizedDescription, style: .warning) }
+    }
 
     @objc private func customTemporaryMode() {
         let settings = controller.loadSettings()

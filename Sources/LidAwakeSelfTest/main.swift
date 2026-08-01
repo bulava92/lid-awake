@@ -139,11 +139,11 @@ func runSelfTests() throws {
 
     let checksum = String(repeating: "a", count: 64)
     try expect(
-        UpdateVerification.parseSHA256("\(checksum)  LidAwake-1.4.2.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg") == checksum,
+        UpdateVerification.parseSHA256("\(checksum)  LidAwake-1.4.3.pkg\n", expectedFilename: "LidAwake-1.4.3.pkg") == checksum,
         "matching release checksum must be parsed"
     )
     try expect(
-        UpdateVerification.parseSHA256("\(checksum)  other.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg") == nil,
+        UpdateVerification.parseSHA256("\(checksum)  other.pkg\n", expectedFilename: "LidAwake-1.4.3.pkg") == nil,
         "checksum for another file must be rejected"
     )
     try expect(
@@ -162,6 +162,34 @@ func runSelfTests() throws {
         !LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 5 seconds"),
         "non-zero screen-lock delay must be rejected"
     )
+
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let formatter = DateFormatter()
+    formatter.calendar = calendar
+    formatter.timeZone = calendar.timeZone
+    formatter.dateFormat = "yyyy-MM-dd HH:mm"
+    let schedule = AwakeSchedule(enabled: true, fallback: .off, rules: [
+        try AwakeScheduleRule(id: "day", days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .on),
+        try AwakeScheduleRule(id: "night", days: Set(1...7), start: AwakeScheduleTime("23:00"), end: AwakeScheduleTime("08:00"), mode: .off)
+    ])
+    try schedule.validate()
+    try expect(schedule.mode(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar) == .on, "day schedule must enable Lid Awake")
+    try expect(schedule.mode(at: formatter.date(from: "2026-07-20 23:30")!, calendar: calendar) == .off, "night schedule must disable Lid Awake")
+    try expect(schedule.mode(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar) == .off, "overnight schedule must extend into the next day")
+    try expect(schedule.mode(at: formatter.date(from: "2026-07-21 08:00")!, calendar: calendar) == .on, "schedule boundary must switch modes")
+    try expect(schedule.nextBoundary(after: formatter.date(from: "2026-07-20 22:00")!, calendar: calendar) == formatter.date(from: "2026-07-20 23:00")!, "next schedule boundary must be calculated")
+
+    let overlap = AwakeSchedule(enabled: true, rules: [
+        try AwakeScheduleRule(days: [1], start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("12:00"), mode: .on),
+        try AwakeScheduleRule(days: [1], start: AwakeScheduleTime("11:00"), end: AwakeScheduleTime("13:00"), mode: .off)
+    ])
+    do {
+        try overlap.validate()
+        try expect(false, "overlapping schedule rules must be rejected")
+    } catch AwakeScheduleError.overlap {
+        try expect(true, "overlapping schedule rules are rejected")
+    }
 }
 
 do {

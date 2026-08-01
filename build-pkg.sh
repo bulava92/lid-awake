@@ -115,6 +115,8 @@ ditto "$AGENT_PATH" "$PKG_ROOT/Library/Application Support/Lid Awake/${AGENT_NAM
 xattr -cr "$PKG_ROOT/Applications/${APP_NAME}.app" "$PKG_ROOT/Library/Application Support/Lid Awake/${AGENT_NAME}.app"
 install -m 755 .build/release/lid-awake "$PKG_ROOT/usr/local/bin/lid-awake"
 install -m 755 scripts/lid-awake-helper "$PKG_ROOT/usr/local/libexec/lid-awake-helper"
+install -m 755 .build/release/lid-awake-scheduler "$PKG_ROOT/usr/local/libexec/lid-awake-scheduler"
+install -m 755 .build/release/lid-awake-schedule-editor "$PKG_ROOT/usr/local/libexec/lid-awake-schedule-editor"
 
 cat > "$PKG_ROOT/Library/LaunchDaemons/su.xyz.LidAwake.reset.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -144,9 +146,12 @@ RESET_LABEL="su.xyz.LidAwake.reset"
 RESET_PLIST="/Library/LaunchDaemons/${RESET_LABEL}.plist"
 POLICY_LABEL="su.xyz.LidAwake.agent"
 APP_LABEL="su.xyz.LidAwake.app"
+SCHEDULE_LABEL="su.xyz.LidAwake.scheduler"
+SCHEDULER="/usr/local/libexec/lid-awake-scheduler"
 
 /usr/sbin/chown -R root:wheel "$APP_PATH" "/Library/Application Support/Lid Awake"
 /bin/chmod 755 /usr/local/bin/lid-awake "$HELPER"
+/bin/chmod 755 "$SCHEDULER" /usr/local/libexec/lid-awake-schedule-editor
 /bin/chmod 644 "$RESET_PLIST"
 /bin/chmod 440 /etc/sudoers.d/lid-awake
 /usr/sbin/visudo -cf /etc/sudoers.d/lid-awake
@@ -168,6 +173,7 @@ if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != root && "$CONSOLE_USER" != loginw
 
   /bin/launchctl bootout "gui/${USER_ID}/${POLICY_LABEL}" 2>/dev/null || true
   /bin/launchctl bootout "gui/${USER_ID}/${APP_LABEL}" 2>/dev/null || true
+  /bin/launchctl bootout "gui/${USER_ID}/${SCHEDULE_LABEL}" 2>/dev/null || true
   /usr/bin/pkill -x LidAwakeApp 2>/dev/null || true
   /usr/bin/pkill -x lid-awake-agent 2>/dev/null || true
 
@@ -206,19 +212,41 @@ PLIST
 </dict></plist>
 PLIST
 
+  cat > "$LAUNCH_AGENTS/${SCHEDULE_LABEL}.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${SCHEDULE_LABEL}</string>
+<key>ProgramArguments</key><array><string>${SCHEDULER}</string><string>run</string></array>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+<key>ProcessType</key><string>Background</string>
+<key>StandardOutPath</key><string>${USER_HOME}/Library/Logs/Lid Awake/scheduler.log</string>
+<key>StandardErrorPath</key><string>${USER_HOME}/Library/Logs/Lid Awake/scheduler.log</string>
+</dict></plist>
+PLIST
+
   /usr/sbin/chown -R "$CONSOLE_USER":staff "$SUPPORT_DIR" "$LAUNCH_AGENTS" "$LOG_DIR"
-  /bin/chmod 644 "$LAUNCH_AGENTS/${POLICY_LABEL}.plist" "$LAUNCH_AGENTS/${APP_LABEL}.plist"
+  /bin/chmod 644 "$LAUNCH_AGENTS/${POLICY_LABEL}.plist" "$LAUNCH_AGENTS/${APP_LABEL}.plist" "$LAUNCH_AGENTS/${SCHEDULE_LABEL}.plist"
   /bin/launchctl bootstrap "gui/${USER_ID}" "$LAUNCH_AGENTS/${POLICY_LABEL}.plist"
   /bin/launchctl bootstrap "gui/${USER_ID}" "$LAUNCH_AGENTS/${APP_LABEL}.plist"
+  /bin/launchctl bootstrap "gui/${USER_ID}" "$LAUNCH_AGENTS/${SCHEDULE_LABEL}.plist"
   /bin/launchctl enable "gui/${USER_ID}/${POLICY_LABEL}"
   /bin/launchctl enable "gui/${USER_ID}/${APP_LABEL}"
+  /bin/launchctl enable "gui/${USER_ID}/${SCHEDULE_LABEL}"
   /bin/launchctl kickstart -k "gui/${USER_ID}/${POLICY_LABEL}"
   /bin/launchctl kickstart -k "gui/${USER_ID}/${APP_LABEL}"
+  /bin/launchctl kickstart -k "gui/${USER_ID}/${SCHEDULE_LABEL}"
+  /bin/launchctl asuser "$USER_ID" /usr/bin/sudo -u "$CONSOLE_USER" "$SCHEDULER" init-default >/dev/null 2>&1 || true
 fi
 POSTINSTALL
 chmod 755 "$PKG_SCRIPTS/postinstall"
 
-pkgbuild \
+# Remove Finder/File Provider metadata after every payload file has been staged.
+chmod u+w "$PKG_ROOT/etc/sudoers.d/lid-awake"
+xattr -cr "$PKG_ROOT" "$PKG_SCRIPTS"
+chmod 440 "$PKG_ROOT/etc/sudoers.d/lid-awake"
+
+COPYFILE_DISABLE=1 pkgbuild \
   --root "$PKG_ROOT" \
   --scripts "$PKG_SCRIPTS" \
   --identifier su.xyz.LidAwake \

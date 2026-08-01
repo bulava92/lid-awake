@@ -9,22 +9,25 @@ RESET_PLIST="/Library/LaunchDaemons/su.xyz.LidAwake.reset.plist"
 USER_AGENT_DIR="$HOME/Library/LaunchAgents"
 POLICY_LABEL="su.xyz.LidAwake.agent"
 APP_LABEL="su.xyz.LidAwake.app"
+SCHEDULE_LABEL="su.xyz.LidAwake.scheduler"
 USER_ID="$(id -u)"
 SUPPORT_DIR="$HOME/Library/Application Support/Lid Awake"
 AGENT_APP_PATH="$SUPPORT_DIR/Lid Awake Agent.app"
 
-for label in "$POLICY_LABEL" "$APP_LABEL" "su.xyz.LidAwakeAgent"; do
+for label in "$POLICY_LABEL" "$APP_LABEL" "$SCHEDULE_LABEL" "su.xyz.LidAwakeAgent"; do
   launchctl bootout "gui/${USER_ID}/${label}" 2>/dev/null || true
 done
 pkill -x LidAwakeApp 2>/dev/null || true
 pkill -x lid-awake-agent 2>/dev/null || true
+pkill -x lid-awake-scheduler 2>/dev/null || true
+pkill -x lid-awake-schedule-editor 2>/dev/null || true
 
 if [[ -x "$HELPER_PATH" ]]; then sudo "$HELPER_PATH" off || true; else sudo /usr/bin/pmset -a disablesleep 0 || true; fi
 
 sudo launchctl bootout system/su.xyz.LidAwake.reset 2>/dev/null || true
-sudo rm -f "$RESET_PLIST" /etc/sudoers.d/lid-awake "$HELPER_PATH" "$OLD_AGENT_PATH" /usr/local/libexec/LidAwakeAgent "$CLI_PATH"
+sudo rm -f "$RESET_PLIST" /etc/sudoers.d/lid-awake "$HELPER_PATH" "$OLD_AGENT_PATH" /usr/local/libexec/LidAwakeAgent "$CLI_PATH" /usr/local/libexec/lid-awake-scheduler /usr/local/libexec/lid-awake-schedule-editor
 sudo rm -rf "$APP_PATH"
-rm -f "$USER_AGENT_DIR/${POLICY_LABEL}.plist" "$USER_AGENT_DIR/${APP_LABEL}.plist" "$USER_AGENT_DIR/su.xyz.LidAwakeAgent.plist"
+rm -f "$USER_AGENT_DIR/${POLICY_LABEL}.plist" "$USER_AGENT_DIR/${APP_LABEL}.plist" "$USER_AGENT_DIR/${SCHEDULE_LABEL}.plist" "$USER_AGENT_DIR/su.xyz.LidAwakeAgent.plist"
 rm -rf "$AGENT_APP_PATH" "$SUPPORT_DIR/LidAwakeAgent.app" "$SUPPORT_DIR" "$HOME/Library/Logs/Lid Awake"
 tccutil reset Accessibility su.xyz.LidAwake.Agent >/dev/null 2>&1 || true
 tccutil reset Notifications su.xyz.LidAwake.Agent >/dev/null 2>&1 || true

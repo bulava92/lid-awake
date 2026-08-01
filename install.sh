@@ -12,6 +12,9 @@ RESET_PLIST="/Library/LaunchDaemons/su.xyz.LidAwake.reset.plist"
 USER_AGENT_DIR="$HOME/Library/LaunchAgents"
 POLICY_LABEL="su.xyz.LidAwake.agent"
 APP_LABEL="su.xyz.LidAwake.app"
+SCHEDULE_LABEL="su.xyz.LidAwake.scheduler"
+SCHEDULER_PATH="/usr/local/libexec/lid-awake-scheduler"
+SCHEDULE_EDITOR_PATH="/usr/local/libexec/lid-awake-schedule-editor"
 USER_ID="$(id -u)"
 ICON_SOURCE="Assets/AppIcon.png"
 ICONSET_PATH="build/AppIcon.iconset"
@@ -128,9 +131,12 @@ PLIST
 # Stop and remove every known previous installation layout.
 launchctl bootout "gui/${USER_ID}/${POLICY_LABEL}" 2>/dev/null || true
 launchctl bootout "gui/${USER_ID}/${APP_LABEL}" 2>/dev/null || true
+launchctl bootout "gui/${USER_ID}/${SCHEDULE_LABEL}" 2>/dev/null || true
 launchctl bootout "gui/${USER_ID}/su.xyz.LidAwakeAgent" 2>/dev/null || true
 pkill -x LidAwakeApp 2>/dev/null || true
 pkill -x lid-awake-agent 2>/dev/null || true
+pkill -x lid-awake-scheduler 2>/dev/null || true
+pkill -x lid-awake-schedule-editor 2>/dev/null || true
 rm -f "$USER_AGENT_DIR/su.xyz.LidAwakeAgent.plist"
 sudo rm -f "$OLD_AGENT_PATH" /usr/local/libexec/LidAwakeAgent
 rm -rf "$SUPPORT_DIR/LidAwakeAgent.app" "$SUPPORT_DIR/Lid Awake Agent.app"
@@ -140,6 +146,8 @@ tccutil reset Accessibility su.xyz.LidAwake.Agent >/dev/null 2>&1 || true
 sudo install -d -m 755 /usr/local/bin /usr/local/libexec /Library/LaunchDaemons
 sudo install -o root -g wheel -m 755 scripts/lid-awake-helper "$HELPER_PATH"
 sudo install -o root -g wheel -m 755 .build/release/lid-awake "$CLI_PATH"
+sudo install -o root -g wheel -m 755 .build/release/lid-awake-scheduler "$SCHEDULER_PATH"
+sudo install -o root -g wheel -m 755 .build/release/lid-awake-schedule-editor "$SCHEDULE_EDITOR_PATH"
 sudo install -o root -g wheel -m 644 build/reset.plist "$RESET_PLIST"
 
 cat > build/lid-awake.sudoers <<EOF
@@ -191,18 +199,36 @@ cat > "$USER_AGENT_DIR/${APP_LABEL}.plist" <<PLIST
 <key>RunAtLoad</key><true/>
 </dict></plist>
 PLIST
+cat > "$USER_AGENT_DIR/${SCHEDULE_LABEL}.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${SCHEDULE_LABEL}</string>
+<key>ProgramArguments</key><array><string>${SCHEDULER_PATH}</string><string>run</string></array>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+<key>ProcessType</key><string>Background</string>
+<key>StandardOutPath</key><string>${HOME}/Library/Logs/Lid Awake/scheduler.log</string>
+<key>StandardErrorPath</key><string>${HOME}/Library/Logs/Lid Awake/scheduler.log</string>
+</dict></plist>
+PLIST
 
 launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${POLICY_LABEL}.plist"
 launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${APP_LABEL}.plist"
+launchctl bootstrap "gui/${USER_ID}" "$USER_AGENT_DIR/${SCHEDULE_LABEL}.plist"
 launchctl enable "gui/${USER_ID}/${POLICY_LABEL}"
 launchctl enable "gui/${USER_ID}/${APP_LABEL}"
+launchctl enable "gui/${USER_ID}/${SCHEDULE_LABEL}"
 launchctl kickstart -k "gui/${USER_ID}/${POLICY_LABEL}"
 launchctl kickstart -k "gui/${USER_ID}/${APP_LABEL}"
+launchctl kickstart -k "gui/${USER_ID}/${SCHEDULE_LABEL}"
+"$SCHEDULER_PATH" init-default >/dev/null
 sleep 1
 
 # Installation self-checks.
 [[ -x "$HELPER_PATH" ]] || { print -u2 "Helper verification failed"; exit 70; }
 [[ -x "$CLI_PATH" ]] || { print -u2 "CLI verification failed"; exit 70; }
+[[ -x "$SCHEDULER_PATH" ]] || { print -u2 "Scheduler verification failed"; exit 70; }
+[[ -x "$SCHEDULE_EDITOR_PATH" ]] || { print -u2 "Schedule editor verification failed"; exit 70; }
 [[ -x "$AGENT_EXECUTABLE" ]] || { print -u2 "Agent verification failed"; exit 70; }
 [[ -f "$APP_PATH/Contents/Resources/AppIcon.icns" ]] || { print -u2 "App icon verification failed"; exit 70; }
 [[ -f "$AGENT_APP_PATH/Contents/Resources/AppIcon.icns" ]] || { print -u2 "Agent icon verification failed"; exit 70; }
@@ -210,6 +236,7 @@ codesign --verify --deep --strict "$APP_PATH"
 codesign --verify --deep --strict "$AGENT_APP_PATH"
 launchctl print "gui/${USER_ID}/${POLICY_LABEL}" >/dev/null
 launchctl print "gui/${USER_ID}/${APP_LABEL}" >/dev/null
+launchctl print "gui/${USER_ID}/${SCHEDULE_LABEL}" >/dev/null
 POLICY_STATE="$("$CLI_PATH" status | /usr/bin/awk -F': ' 'NR == 1 { print $2 }')"
 EXPECTED_HELPER_STATE="$([[ "$POLICY_STATE" == "enabled" ]] && print enabled || print disabled)"
 [[ "$(sudo "$HELPER_PATH" status)" == "$EXPECTED_HELPER_STATE" ]] || {

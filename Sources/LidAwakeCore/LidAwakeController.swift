@@ -161,7 +161,8 @@ public struct LidAwakeController {
         return try? JSONDecoder().decode(LidAwakeStatus.self, from: data)
     }
 
-    public func requestEnabled() throws {
+    public func requestEnabled(recordScheduleOverride: Bool = true) throws {
+        if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.on) }
         var settings = loadSettings(); settings.requested = true; settings.expiresAt = nil
         try saveSettings(settings); _ = try reconcile()
     }
@@ -175,7 +176,8 @@ public struct LidAwakeController {
 
     public func cancelTemporary() throws { try requestDisabled() }
 
-    public func requestDisabled() throws {
+    public func requestDisabled(recordScheduleOverride: Bool = true) throws {
+        if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.off) }
         var settings = loadSettings(); settings.requested = false; settings.expiresAt = nil
         try saveSettings(settings); _ = try reconcile()
     }
@@ -290,6 +292,7 @@ public struct LidAwakeController {
 
     public func diagnostics(agentPath: String? = nil) -> String {
         let status = loadStatus(); let settings = loadSettings()
+        let schedule = try? AwakeScheduleStore().load()
         let lastClose = (try? String(contentsOf: Self.lastLidCloseFile, encoding: .utf8)) ?? "never"
         return """
         Lid Awake \(Self.version)
@@ -300,6 +303,9 @@ public struct LidAwakeController {
         language: \(L10n.selectedLanguage.rawValue)
         requested: \(settings.requested)
         mode: \(settings.expiresAt == nil ? "permanent" : "temporary")
+        schedule-enabled: \(schedule?.enabled ?? false)
+        schedule-mode: \(schedule?.mode(at: Date())?.rawValue ?? "manual")
+        schedule-next: \(schedule?.nextBoundary(after: Date()).map { ISO8601DateFormatter().string(from: $0) } ?? "none")
         external-display-bypass: \(settings.skipLidActionsWithExternalDisplay)
         display-sleep-on-lid-close: \(settings.displaySleepOnLidClose)
         lock-on-lid-close: \(settings.lockOnLidClose)

@@ -15,6 +15,7 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 ## Features
 
 - Permanent and temporary modes.
+- Weekly schedules with per-day intervals and overnight rules.
 - Optional AC-only operation.
 - Automatic low-battery suspension.
 - Thermal protection.
@@ -28,6 +29,8 @@ Lid Awake is a macOS menu bar utility that keeps a MacBook running with the lid 
 ## Menu structure
 
 The main menu contains the current mode, Enable, Disable, Temporary mode, Settings, Diagnostics, Open log, Check for updates, and Quit.
+
+The main menu also contains **Schedule enabled** and **Configure schedule…**.
 
 Inside **Settings**:
 
@@ -50,6 +53,19 @@ Inside **Settings**:
 Selecting Enable means Lid Awake should keep the Mac active until the user disables it. Temporary mode does the same until its timer expires.
 
 Safety constraints do not cancel the user's request. Missing external power, low battery, or thermal pressure changes the state to Paused. When the constraint disappears, the mode resumes automatically.
+
+## Weekly schedule
+
+Each interval defines weekdays, start and end time, and whether Lid Awake should keep the Mac active or allow normal sleep. Intervals may cross midnight. Outside configured intervals the schedule can allow sleep, keep the Mac awake, or preserve the current manual state.
+
+The default template is disabled until saved and enabled:
+
+```text
+Every day  08:00–23:00  Keep awake
+Every day  23:00–08:00  Allow normal sleep
+```
+
+A temporary mode has priority over the schedule. The scheduler applies the current interval after the temporary mode ends. Manual Enable or Disable remains in effect until the next schedule boundary or a scheduler refresh after wake, clock, or time-zone changes.
 
 ## Power and battery handling
 
@@ -167,6 +183,11 @@ lid-awake status
 lid-awake settings
 lid-awake diagnostics
 lid-awake version
+lid-awake schedule edit
+lid-awake schedule status
+lid-awake schedule enable
+lid-awake schedule disable
+lid-awake schedule next
 ```
 
 ## Diagnostics and logs

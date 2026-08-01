@@ -16,6 +16,7 @@ func usage() {
       lid-awake settings
       lid-awake ac-only on|off
       lid-awake external-display-bypass on|off
+      lid-awake schedule edit|status|enable|disable|next|show|validate|apply
       lid-awake lock-on-lid-close on|off
       lid-awake battery-limit <0...100>
       lid-awake max-duration <seconds>
@@ -35,6 +36,7 @@ func usage() {
       lid-awake settings
       lid-awake ac-only on|off
       lid-awake external-display-bypass on|off
+      lid-awake schedule edit|status|enable|disable|next|show|validate|apply
       lid-awake lock-on-lid-close on|off
       lid-awake battery-limit <0...100>
       lid-awake max-duration <секунды>
@@ -52,6 +54,23 @@ func fail(_ error: Error) -> Never { fputs("lid-awake: \(error.localizedDescript
 func boolValue(_ value: String) throws -> Bool {
     guard ["on", "off"].contains(value) else { throw LidAwakeError.invalidValue }
     return value == "on"
+}
+
+func runScheduleCommand(_ arguments: [String]) -> Never {
+    let scheduler = "/usr/local/libexec/lid-awake-scheduler"
+    let editor = "/usr/local/libexec/lid-awake-schedule-editor"
+    let process = Process()
+    if arguments.first == "edit" {
+        process.executableURL = URL(fileURLWithPath: editor)
+        process.arguments = []
+    } else {
+        process.executableURL = URL(fileURLWithPath: scheduler)
+        process.arguments = arguments.isEmpty ? ["status"] : arguments
+    }
+    process.standardOutput = FileHandle.standardOutput
+    process.standardError = FileHandle.standardError
+    do { try process.run(); process.waitUntilExit(); exit(process.terminationStatus) }
+    catch { fail(error) }
 }
 
 func printStatus(_ status: LidAwakeStatus) {
@@ -96,6 +115,7 @@ do {
     case "external-display-bypass":
         guard args.count == 2 else { throw LidAwakeError.invalidValue }
         let enabled = try boolValue(args[1]); try controller.update { $0.skipLidActionsWithExternalDisplay = enabled }; print("external-display-bypass: \(args[1])")
+    case "schedule": runScheduleCommand(Array(args.dropFirst()))
     case "lock-on-lid-close":
         guard args.count == 2 else { throw LidAwakeError.invalidValue }
         let enabled = try boolValue(args[1]); try controller.update { $0.lockOnLidClose = enabled }; print("lock-on-lid-close: \(args[1])")

@@ -174,10 +174,10 @@ final class LidAwakeCoreTests: XCTestCase {
     func testParsesMatchingChecksum() {
         let hash = String(repeating: "a", count: 64)
         XCTAssertEqual(
-            UpdateVerification.parseSHA256("\(hash)  LidAwake-1.4.2.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg"),
+            UpdateVerification.parseSHA256("\(hash)  LidAwake-1.4.3.pkg\n", expectedFilename: "LidAwake-1.4.3.pkg"),
             hash
         )
-        XCTAssertNil(UpdateVerification.parseSHA256("\(hash)  other.pkg\n", expectedFilename: "LidAwake-1.4.2.pkg"))
+        XCTAssertNil(UpdateVerification.parseSHA256("\(hash)  other.pkg\n", expectedFilename: "LidAwake-1.4.3.pkg"))
     }
 
     func testCalculatesKnownSHA256() {
@@ -191,5 +191,30 @@ final class LidAwakeCoreTests: XCTestCase {
         XCTAssertTrue(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is immediate"))
         XCTAssertTrue(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 0"))
         XCTAssertFalse(LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 5 seconds"))
+    }
+
+    func testWeeklyScheduleAndOvernightRules() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        let schedule = AwakeSchedule(enabled: true, fallback: .off, rules: [
+            try AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("23:00"), mode: .on),
+            try AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("23:00"), end: AwakeScheduleTime("08:00"), mode: .off)
+        ])
+        try schedule.validate()
+        XCTAssertEqual(schedule.mode(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar), .on)
+        XCTAssertEqual(schedule.mode(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar), .off)
+        XCTAssertEqual(schedule.nextBoundary(after: formatter.date(from: "2026-07-20 22:00")!, calendar: calendar), formatter.date(from: "2026-07-20 23:00")!)
+    }
+
+    func testScheduleRejectsOverlaps() throws {
+        let schedule = AwakeSchedule(enabled: true, rules: [
+            try AwakeScheduleRule(days: [1], start: AwakeScheduleTime("08:00"), end: AwakeScheduleTime("12:00"), mode: .on),
+            try AwakeScheduleRule(days: [1], start: AwakeScheduleTime("11:00"), end: AwakeScheduleTime("13:00"), mode: .off)
+        ])
+        XCTAssertThrowsError(try schedule.validate())
     }
 }
