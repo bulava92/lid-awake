@@ -283,14 +283,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = t("Hide menu bar icon?", "Скрыть значок в строке меню?")
         alert.informativeText = t(
-            "The Lid Awake interface will close, but the background agent will continue working. Launch Lid Awake again from Applications to restore the icon.",
-            "Интерфейс Lid Awake закроется, но фоновый агент продолжит работать. Чтобы вернуть значок, снова запустите Lid Awake из папки «Программы»."
+            "The Lid Awake interface will close and its launch-at-login setting will be disabled. The background agent will continue working. Launch Lid Awake again from Applications to restore the icon.",
+            "Интерфейс Lid Awake закроется, а его автозапуск будет отключён. Фоновый агент продолжит работать. Чтобы вернуть значок, снова запустите Lid Awake из папки «Программы»."
         )
         alert.addButton(withTitle: t("Hide", "Скрыть"))
         alert.addButton(withTitle: t("Cancel", "Отмена"))
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        NSApp.terminate(nil)
+        do {
+            try controller.update { $0.launchAtLogin = false }
+            NSApp.terminate(nil)
+        } catch {
+            showAlert(title: t("Could not disable launch at login", "Не удалось отключить автозапуск"), message: error.localizedDescription, style: .warning)
+        }
     }
 
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
