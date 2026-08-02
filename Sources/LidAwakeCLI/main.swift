@@ -139,7 +139,7 @@ do {
         guard args.count == 2, let language = AppLanguage(rawValue: args[1]) else { throw LidAwakeError.invalidValue }
         try L10n.setLanguage(language); _ = try controller.reconcile(); print("language: \(language.rawValue)")
     case "diagnostics": print(controller.diagnostics())
-    case "log-path": print(LidAwakeController.agentLogFile.path)
+    case "log-path": print(LidAwakeController.eventLogFile.path)
     case "version", "--version", "-v": print(LidAwakeController.version)
     case "help", "--help", "-h": usage()
     default: usage(); exit(64)

@@ -342,9 +342,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func showDiagnostics() { showAlert(title: t("Diagnostics", "Диагностика"), message: controller.diagnostics()) }
     @objc private func openLogs() {
         let manager = FileManager.default
-        try? manager.createDirectory(at: LidAwakeController.agentLogFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !manager.fileExists(atPath: LidAwakeController.agentLogFile.path) { manager.createFile(atPath: LidAwakeController.agentLogFile.path, contents: nil) }
-        NSWorkspace.shared.open(LidAwakeController.agentLogFile)
+        try? manager.createDirectory(at: LidAwakeController.eventLogFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !manager.fileExists(atPath: LidAwakeController.eventLogFile.path) { manager.createFile(atPath: LidAwakeController.eventLogFile.path, contents: nil) }
+        NSWorkspace.shared.open(LidAwakeController.eventLogFile)
     }
 
     @objc private func checkUpdates() {

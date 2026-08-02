@@ -30,12 +30,13 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     private var changingSelection = false
 
     private let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 820, height: 530),
+        contentRect: NSRect(x: 0, y: 0, width: 900, height: 440),
         styleMask: [.titled, .closable, .miniaturizable, .resizable],
         backing: .buffered,
         defer: false
     )
     private let enabled = NSButton(checkboxWithTitle: t("Enable schedule", "Использовать расписание"), target: nil, action: nil)
+    private let fallback = NSPopUpButton()
     private let table = NSTableView()
     private let ruleEnabled = NSButton(checkboxWithTitle: t("Interval enabled", "Интервал включён"), target: nil, action: nil)
     private var dayButtons: [NSButton] = []
@@ -44,6 +45,10 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     private let mode = NSPopUpButton()
     private let status = NSTextField(labelWithString: "")
     private let removeButton = NSButton(title: t("Remove", "Удалить"), target: nil, action: nil)
+    private let emptyState = NSTextField(wrappingLabelWithString: t(
+        "No intervals yet. Click Add to create one.",
+        "Интервалов пока нет. Нажмите «Добавить», чтобы создать первый."
+    ))
 
     override init() {
         schedule = (try? store.load()) ?? (try! store.defaultSchedule())
@@ -52,6 +57,13 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildUI()
+        if schedule.rules.isEmpty {
+            window.setContentSize(NSSize(width: 900, height: 420))
+        } else if window.frame.height > 480 {
+            // Keep the saved window frame from reintroducing vertical space
+            // above the schedule controls.
+            window.setContentSize(NSSize(width: 900, height: 440))
+        }
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -67,7 +79,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
 
     private func buildUI() {
         window.title = t("Lid Awake Schedule", "Расписание Lid Awake")
-        window.minSize = NSSize(width: 760, height: 500)
+        window.minSize = NSSize(width: 880, height: 420)
         window.setFrameAutosaveName("LidAwakeScheduleEditorWindow")
 
         let root = NSView()
@@ -76,28 +88,48 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         let title = NSTextField(labelWithString: t("Weekly schedule", "Недельное расписание"))
         title.font = .systemFont(ofSize: 20, weight: .semibold)
         let subtitle = NSTextField(wrappingLabelWithString: t(
-            "Choose what Lid Awake should do when you close the lid during each interval.",
-            "Выберите, что Lid Awake должен делать при закрытии крышки в каждом интервале."
+            "Choose what Lid Awake should do during each interval.",
+            "Выберите, что Lid Awake должен делать в каждом интервале."
         ))
         subtitle.textColor = .secondaryLabelColor
         let heading = NSStackView(views: [title, subtitle])
         heading.orientation = .vertical
         heading.alignment = .leading
         heading.spacing = 4
+        heading.distribution = .fill
+        heading.setContentHuggingPriority(.required, for: .vertical)
+        heading.setContentCompressionResistancePriority(.required, for: .vertical)
 
         enabled.state = schedule.enabled ? .on : .off
-        let outsideIntervals = NSTextField(labelWithString: t("Outside intervals: Do nothing", "Вне интервалов: ничего не делать"))
-        outsideIntervals.textColor = .secondaryLabelColor
-        let settings = NSStackView(views: [enabled, NSView(), outsideIntervals])
+        fallback.addItems(withTitles: [
+            t("Do nothing", "Ничего не делать"),
+            t("Keep awake", "Удерживать активным"),
+            t("Keep manual state", "Сохранять ручной режим")
+        ])
+        fallback.selectItem(at: schedule.fallback == .off ? 0 : schedule.fallback == .on ? 1 : 2)
+        fallback.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let fallbackLabel = NSTextField(labelWithString: t("Outside intervals:", "Вне интервалов:"))
+        fallbackLabel.textColor = .secondaryLabelColor
+        let fallbackRow = NSStackView(views: [fallbackLabel, fallback])
+        fallbackRow.orientation = .horizontal
+        fallbackRow.alignment = .centerY
+        fallbackRow.spacing = 8
+        let settings = NSStackView(views: [enabled, NSView(), fallbackRow])
         settings.orientation = .horizontal
         settings.alignment = .centerY
         let header = NSStackView(views: [heading, settings])
         header.orientation = .vertical
         header.alignment = .leading
-        header.spacing = 14
+        header.spacing = 8
+        header.distribution = .fill
+        header.heightAnchor.constraint(lessThanOrEqualToConstant: 100).isActive = true
+        header.setContentHuggingPriority(.required, for: .vertical)
+        header.setContentCompressionResistancePriority(.required, for: .vertical)
 
         table.headerView = nil
-        table.rowHeight = 48
+        table.rowHeight = 50
+        table.intercellSpacing = NSSize(width: 0, height: 2)
+        table.selectionHighlightStyle = .regular
         table.delegate = self
         table.dataSource = self
         table.allowsEmptySelection = false
@@ -113,24 +145,31 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         removeButton.action = #selector(removeRule)
         let buttons = NSStackView(views: [add, removeButton, NSView()])
         buttons.orientation = .horizontal
-        let list = NSStackView(views: [NSTextField(labelWithString: t("Intervals", "Интервалы")), scroll, buttons])
+        let list = NSStackView(views: [NSTextField(labelWithString: t("Intervals", "Интервалы")), scroll, emptyState, buttons])
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 10
-        list.widthAnchor.constraint(equalToConstant: 285).isActive = true
+        list.widthAnchor.constraint(equalToConstant: 310).isActive = true
         scroll.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
-        scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 170).isActive = true
+        emptyState.textColor = .secondaryLabelColor
+        emptyState.maximumNumberOfLines = 2
+        emptyState.isHidden = !schedule.rules.isEmpty
         buttons.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+        emptyState.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
 
         let editor = buildRuleEditor()
         let divider = NSBox()
         divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
         divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
         let content = NSStackView(views: [list, divider, editor])
         content.orientation = .horizontal
         content.alignment = .top
         content.spacing = 18
-        editor.widthAnchor.constraint(greaterThanOrEqualToConstant: 390).isActive = true
+        content.distribution = .fill
+        divider.heightAnchor.constraint(equalTo: content.heightAnchor).isActive = true
+        editor.widthAnchor.constraint(greaterThanOrEqualToConstant: 460).isActive = true
 
         status.textColor = .systemRed
         let cancel = NSButton(title: t("Cancel", "Отмена"), target: self, action: #selector(cancel))
@@ -144,7 +183,8 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         main.translatesAutoresizingMaskIntoConstraints = false
         main.orientation = .vertical
         main.alignment = .leading
-        main.spacing = 18
+        main.distribution = .fill
+        main.spacing = 12
         root.addSubview(main)
         header.widthAnchor.constraint(equalTo: main.widthAnchor).isActive = true
         settings.widthAnchor.constraint(equalTo: header.widthAnchor).isActive = true
@@ -179,11 +219,14 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
             picker.datePickerStyle = .textFieldAndStepper
             picker.target = self
             picker.action = #selector(updateRule)
+            picker.widthAnchor.constraint(equalToConstant: 92).isActive = true
         }
         let times = NSStackView(views: [formGroup(t("Start", "Начало"), startPicker), formGroup(t("End", "Конец"), endPicker)])
         times.orientation = .horizontal
-        times.distribution = .fillEqually
-        times.spacing = 18
+        times.distribution = .fill
+        times.spacing = 24
+        times.setContentHuggingPriority(.required, for: .horizontal)
+        times.setContentCompressionResistancePriority(.required, for: .horizontal)
         mode.addItems(withTitles: [
             t("Keep awake", "Удерживать активным"),
             t("Do nothing", "Ничего не делать"),
@@ -207,7 +250,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         stack.alignment = .leading
         stack.spacing = 12
         view.addSubview(stack)
-        times.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        times.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor), stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor), stack.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -226,19 +269,50 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     func numberOfRows(in tableView: NSTableView) -> Int { schedule.rules.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard schedule.rules.indices.contains(row) else { return nil }
         let rule = schedule.rules[row]
         let id = NSUserInterfaceItemIdentifier("ScheduleRuleCell")
-        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView) ?? NSTableCellView()
-        cell.identifier = id
-        let label = cell.textField ?? NSTextField(labelWithString: "")
-        if label.superview == nil {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            cell.textField = label
-            cell.addSubview(label)
-            NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8), label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
-        }
-        label.stringValue = "\(compactDays(rule.days))  \(rule.start.stringValue)–\(rule.end.stringValue)  ·  \(actionTitle(rule.mode))"
-        label.textColor = rule.enabled ? .labelColor : .secondaryLabelColor
+        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView) ?? makeRuleCell(identifier: id)
+        guard let title = cell.textField,
+              let subtitle = cell.viewWithTag(1001) as? NSTextField else { return cell }
+        title.stringValue = compactDays(rule.days) + "  " + rule.start.stringValue + "–" + rule.end.stringValue
+        subtitle.stringValue = actionTitle(rule.mode)
+        title.textColor = rule.enabled ? .labelColor : .secondaryLabelColor
+        subtitle.textColor = .secondaryLabelColor
+        return cell
+    }
+
+    private func makeRuleCell(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+        let cell = NSTableCellView()
+        cell.identifier = identifier
+
+        let title = NSTextField(labelWithString: "")
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.lineBreakMode = .byTruncatingTail
+        title.translatesAutoresizingMaskIntoConstraints = false
+
+        let subtitle = NSTextField(labelWithString: "")
+        subtitle.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        subtitle.textColor = .secondaryLabelColor
+        subtitle.lineBreakMode = .byTruncatingTail
+        subtitle.tag = 1001
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+
+        let labels = NSStackView(views: [title, subtitle])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 3
+        labels.translatesAutoresizingMaskIntoConstraints = false
+
+        cell.textField = title
+        cell.addSubview(labels)
+        NSLayoutConstraint.activate([
+            labels.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
+            labels.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+            labels.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            title.trailingAnchor.constraint(equalTo: labels.trailingAnchor),
+            subtitle.trailingAnchor.constraint(equalTo: labels.trailingAnchor)
+        ])
         return cell
     }
 
@@ -319,7 +393,14 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         schedule.rules[index].start = start
         schedule.rules[index].end = end
         schedule.rules[index].mode = scheduleMode(mode.indexOfSelectedItem)
-        if reload { table.reloadData() }
+        if reload,
+           let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? NSTableCellView,
+           let title = cell.textField,
+           let subtitle = cell.viewWithTag(1001) as? NSTextField {
+            let rule = schedule.rules[index]
+            title.stringValue = "\(compactDays(rule.days))  \(rule.start.stringValue)–\(rule.end.stringValue)"
+            subtitle.stringValue = actionTitle(rule.mode)
+        }
     }
 
     @objc private func updateRule() { saveControls() }
@@ -327,6 +408,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     @objc private func addRule() {
         guard let rule = try? AwakeScheduleRule(days: Set(1...7), start: AwakeScheduleTime("09:00"), end: AwakeScheduleTime("18:00"), mode: .on) else { return }
         schedule.rules.append(rule)
+        emptyState.isHidden = true
         table.reloadData()
         selectRule(schedule.rules.count - 1)
     }
@@ -335,14 +417,14 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         guard let index = selectedIndex, schedule.rules.indices.contains(index) else { return }
         schedule.rules.remove(at: index)
         table.reloadData()
-        if schedule.rules.isEmpty { selectedIndex = nil; setEditorEnabled(false) }
+        if schedule.rules.isEmpty { selectedIndex = nil; emptyState.isHidden = false; setEditorEnabled(false) }
         else { selectRule(min(index, schedule.rules.count - 1)) }
     }
 
     @objc private func save() {
         saveControls()
         schedule.enabled = enabled.state == .on
-        schedule.fallback = .off
+        schedule.fallback = fallback.indexOfSelectedItem == 0 ? .off : fallback.indexOfSelectedItem == 1 ? .on : .manual
         do {
             try store.save(schedule)
             store.clearManualOverride()

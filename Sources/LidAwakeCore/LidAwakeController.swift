@@ -164,14 +164,14 @@ public struct LidAwakeController {
     public func requestEnabled(recordScheduleOverride: Bool = true) throws {
         if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.on) }
         var settings = loadSettings(); settings.requested = true; settings.expiresAt = nil
-        try saveSettings(settings); _ = try reconcile()
+        try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
     public func requestTemporary(duration: Int) throws {
         var settings = loadSettings()
         guard duration >= 60, duration <= settings.maxDuration else { throw LidAwakeError.invalidDuration }
         settings.requested = true; settings.expiresAt = Date().addingTimeInterval(TimeInterval(duration))
-        try saveSettings(settings); _ = try reconcile()
+        try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
     public func cancelTemporary() throws { try requestDisabled() }
@@ -179,7 +179,7 @@ public struct LidAwakeController {
     public func requestDisabled(recordScheduleOverride: Bool = true) throws {
         if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.off) }
         var settings = loadSettings(); settings.requested = false; settings.expiresAt = nil
-        try saveSettings(settings); _ = try reconcile()
+        try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
     public func update(_ mutate: (inout LidAwakeSettings) throws -> Void) throws {

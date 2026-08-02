@@ -8,6 +8,11 @@ import UserNotifications
 import LidAwakeCore
 
 final class AgentRuntime {
+    private struct ScheduleBaseline {
+        let requested: Bool
+        let expiresAt: Date?
+    }
+
     private let controller = LidAwakeController()
     private var previousLidClosed: Bool?
     private var lastStatus: LidAwakeStatus?
@@ -18,8 +23,15 @@ final class AgentRuntime {
     private var powerSourceRunLoopSource: CFRunLoopSource?
     private var pendingPowerReconcile: DispatchWorkItem?
     private var pendingLidCloseActions: DispatchWorkItem?
+    private var pendingTemporaryExpiry: DispatchWorkItem?
+    private var scheduledTemporaryHoldActive = false
+    private var timedHoldExpiredWhileClosed = false
+    private var schedulePolicyKey: String?
+    private var scheduleBaseline: ScheduleBaseline?
     private var notificationPermissionRequested = false
+    private let lidEventQueue = DispatchQueue(label: "su.xyz.LidAwake.lid-events", qos: .userInitiated)
     private static let lidCloseDebounceSeconds: TimeInterval = 2
+    private static let lidStateProbeDelays: [TimeInterval] = [0, 0.05, 0.2, 0.5, 1.0]
 
     init() {
         previousLidClosed = controller.readLidClosed()
@@ -33,14 +45,25 @@ final class AgentRuntime {
         installLidObserver()
         installPowerSourceObserver()
         evaluatePolicy(force: true)
+        armTemporaryExpiryTimerIfNeeded()
 
         Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-            self?.evaluatePolicy(force: false)
+            guard let self else { return }
+            self.lidEventQueue.async { self.evaluatePolicy(force: false) }
         }
         Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            self?.handleLidStateChange()
+            guard let self else { return }
+            self.scheduleLidStateProbes()
         }
         RunLoop.current.run()
+    }
+
+    private func scheduleLidStateProbes() {
+        for delay in Self.lidStateProbeDelays {
+            lidEventQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.handleLidStateChange()
+            }
+        }
     }
 
     private func installLidObserver() {
@@ -51,7 +74,7 @@ final class AgentRuntime {
         }
         guard let port = IONotificationPortCreate(kIOMainPortDefault) else { return }
         notificationPort = port
-        IONotificationPortSetDispatchQueue(port, DispatchQueue.main)
+        IONotificationPortSetDispatchQueue(port, lidEventQueue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         let result = IOServiceAddInterestNotification(
             port,
@@ -59,7 +82,7 @@ final class AgentRuntime {
             kIOGeneralInterest,
             { refcon, _, _, _ in
                 guard let refcon else { return }
-                Unmanaged<AgentRuntime>.fromOpaque(refcon).takeUnretainedValue().handleLidStateChange()
+                Unmanaged<AgentRuntime>.fromOpaque(refcon).takeUnretainedValue().scheduleLidStateProbes()
             },
             refcon,
             &notifier
@@ -84,20 +107,25 @@ final class AgentRuntime {
     }
 
     private func handlePowerSourceChange() {
-        pendingPowerReconcile?.cancel()
-        evaluatePolicy(force: true)
+        lidEventQueue.async { [weak self] in
+            guard let self else { return }
+            self.pendingPowerReconcile?.cancel()
+            self.evaluatePolicy(force: true)
 
-        let delayed = DispatchWorkItem { [weak self] in
-            self?.evaluatePolicy(force: true)
+            let delayed = DispatchWorkItem { [weak self] in
+                self?.evaluatePolicy(force: true)
+            }
+            self.pendingPowerReconcile = delayed
+            self.lidEventQueue.asyncAfter(deadline: .now() + 3, execute: delayed)
         }
-        pendingPowerReconcile = delayed
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: delayed)
     }
 
     private func evaluatePolicy(force: Bool) {
         do {
-            let shouldForce = force || Date().timeIntervalSince(lastForcedApply) >= 300
-            let status = try controller.reconcile(forceApply: shouldForce)
+            let now = Date()
+            try applySchedulePolicy(now: now)
+            let shouldForce = force || now.timeIntervalSince(lastForcedApply) >= 300
+            let status = try controller.reconcile(now: now, forceApply: shouldForce)
             if shouldForce { lastForcedApply = Date() }
             ensureNotificationPermissionIfNeeded(status.settings)
             notifyTransitionIfNeeded(status)
@@ -108,7 +136,133 @@ final class AgentRuntime {
         }
     }
 
+    private func applySchedulePolicy(now: Date) throws {
+        let schedule = try AwakeScheduleStore().load()
+        let activeRule = schedule.enabled ? schedule.activeRule(at: now) : nil
+        let activeMode = activeRule?.mode ?? (schedule.enabled ? schedule.fallback.mode : nil)
+        let policyKey: String? = if let activeRule {
+            "rule:\(activeRule.id):\(activeRule.mode.rawValue)"
+        } else if let activeMode {
+            "fallback:\(activeMode.rawValue)"
+        } else {
+            nil
+        }
+
+        if policyKey != schedulePolicyKey {
+            pendingTemporaryExpiry?.cancel()
+            pendingTemporaryExpiry = nil
+            scheduledTemporaryHoldActive = false
+            timedHoldExpiredWhileClosed = false
+            schedulePolicyKey = policyKey
+        }
+
+        guard let activeMode, activeMode != .off else {
+            if let baseline = scheduleBaseline {
+                var settings = controller.loadSettings()
+                settings.requested = baseline.requested
+                settings.expiresAt = baseline.expiresAt
+                try controller.saveSettings(settings)
+                scheduleBaseline = nil
+            }
+            return
+        }
+
+        if scheduleBaseline == nil {
+            let settings = controller.loadSettings()
+            scheduleBaseline = ScheduleBaseline(requested: settings.requested, expiresAt: settings.expiresAt)
+        }
+
+        var settings = controller.loadSettings()
+        let lidClosed = controller.readLidClosed() == true
+        let desiredRequested: Bool
+        let desiredExpiry: Date?
+
+        switch activeMode {
+        case .on:
+            timedHoldExpiredWhileClosed = false
+            scheduledTemporaryHoldActive = false
+            desiredRequested = true
+            desiredExpiry = nil
+        case .minutes15, .hour1:
+            if !lidClosed {
+                // The timed modes still hold the Mac while the lid is open.
+                // Closing starts the countdown; opening cancels it.
+                timedHoldExpiredWhileClosed = false
+                scheduledTemporaryHoldActive = false
+                pendingTemporaryExpiry?.cancel()
+                pendingTemporaryExpiry = nil
+                desiredRequested = true
+                desiredExpiry = nil
+            } else if timedHoldExpiredWhileClosed {
+                desiredRequested = false
+                desiredExpiry = nil
+            } else if let expiry = settings.expiresAt, expiry > now {
+                scheduledTemporaryHoldActive = true
+                if pendingTemporaryExpiry == nil { armTemporaryExpiryTimerIfNeeded() }
+                desiredRequested = true
+                desiredExpiry = expiry
+            } else {
+                desiredRequested = true
+                desiredExpiry = nil
+            }
+        case .off:
+            return
+        }
+
+        if settings.requested != desiredRequested || settings.expiresAt != desiredExpiry {
+            settings.requested = desiredRequested
+            settings.expiresAt = desiredExpiry
+            try controller.saveSettings(settings)
+        }
+    }
+
+    private func armTemporaryExpiryTimerIfNeeded() {
+        pendingTemporaryExpiry?.cancel()
+        pendingTemporaryExpiry = nil
+
+        guard let expiry = controller.loadSettings().expiresAt else { return }
+        if let schedule = try? AwakeScheduleStore().load(),
+           let mode = schedule.activeRule(at: Date())?.mode,
+           mode.lidCloseDuration != nil {
+            scheduledTemporaryHoldActive = true
+        }
+        let deadline = expiry
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingTemporaryExpiry = nil
+            self.scheduledTemporaryHoldActive = false
+
+            guard self.controller.readLidClosed() == true else {
+                self.timedHoldExpiredWhileClosed = false
+                self.evaluatePolicy(force: true)
+                return
+            }
+
+            let settings = self.controller.loadSettings()
+            guard settings.requested, let currentExpiry = settings.expiresAt else { return }
+            // A manual temporary-mode change replaced this schedule hold.
+            guard abs(currentExpiry.timeIntervalSince(deadline)) < 1 else {
+                self.armTemporaryExpiryTimerIfNeeded()
+                return
+            }
+            self.timedHoldExpiredWhileClosed = true
+
+            do {
+                try self.controller.requestDisabled(recordScheduleOverride: false)
+                self.controller.appendEvent(L10n.text(
+                    "Scheduled lid-close hold ended",
+                    "Удержание после закрытия крышки завершено по таймеру"
+                ))
+            } catch {
+                self.controller.appendEvent("Could not end scheduled lid-close hold: \(error.localizedDescription)")
+            }
+        }
+        pendingTemporaryExpiry = timer
+        lidEventQueue.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
+    }
+
     private func applyScheduleActionForLidClose() -> Bool {
+        try? applySchedulePolicy(now: Date())
         guard let rule = try? AwakeScheduleStore().load().activeRule(at: Date()) else { return false }
         do {
             switch rule.mode {
@@ -119,6 +273,9 @@ final class AgentRuntime {
                 ))
                 return false
             case .on:
+                pendingTemporaryExpiry?.cancel()
+                pendingTemporaryExpiry = nil
+                scheduledTemporaryHoldActive = false
                 try controller.requestEnabled(recordScheduleOverride: false)
                 controller.appendEvent(L10n.text(
                     "Schedule action on lid close: keep awake",
@@ -126,13 +283,15 @@ final class AgentRuntime {
                 ))
             case .minutes15, .hour1:
                 guard let duration = rule.mode.lidCloseDuration else { return false }
+                timedHoldExpiredWhileClosed = false
+                scheduledTemporaryHoldActive = true
                 try controller.requestTemporary(duration: duration)
+                armTemporaryExpiryTimerIfNeeded()
                 controller.appendEvent(L10n.text(
                     "Schedule action on lid close: keep awake for \(duration / 60) minutes",
                     "Действие расписания при закрытии крышки: удерживать активным \(duration / 60) мин."
                 ))
             }
-            evaluatePolicy(force: true)
             return true
         } catch {
             controller.appendEvent("Could not apply schedule action on lid close: \(error.localizedDescription)")
@@ -146,14 +305,22 @@ final class AgentRuntime {
         if !lidClosed {
             pendingLidCloseActions?.cancel()
             pendingLidCloseActions = nil
+            if let schedule = try? AwakeScheduleStore().load(),
+               schedule.enabled,
+               schedule.mode(at: Date())?.lidCloseDuration != nil {
+                timedHoldExpiredWhileClosed = false
+                scheduledTemporaryHoldActive = false
+                pendingTemporaryExpiry?.cancel()
+                pendingTemporaryExpiry = nil
+            }
+            evaluatePolicy(force: true)
             return
         }
         guard previousLidClosed != true, lidClosed else { return }
 
-        evaluatePolicy(force: false)
-        guard let status = lastStatus ?? controller.loadStatus() else { return }
+        let settings = controller.loadSettings()
 
-        if status.settings.skipLidActionsWithExternalDisplay, hasExternalDisplay() {
+        if settings.skipLidActionsWithExternalDisplay, hasExternalDisplay() {
             controller.appendEvent(L10n.text(
                 "Lid actions skipped because an external display is connected",
                 "Действия при закрытии крышки пропущены: подключён внешний монитор"
@@ -161,14 +328,18 @@ final class AgentRuntime {
             return
         }
 
+        // Start the scheduled hold before logging and playing the optional
+        // sound. The Mac may begin clamshell sleep immediately after this
+        // notification, so the helper must be enabled first.
+        _ = applyScheduleActionForLidClose()
+
         controller.recordLidClose()
-        if status.settings.soundOnLidClose {
-            if !controller.playLidCloseSound(volumePercent: status.settings.lidCloseSoundVolume) {
+        if settings.soundOnLidClose {
+            if !controller.playLidCloseSound(volumePercent: settings.lidCloseSoundVolume) {
                 controller.appendEvent("Could not play lid-close sound")
             }
         }
 
-        _ = applyScheduleActionForLidClose()
         evaluatePolicy(force: false)
         guard let updatedStatus = lastStatus ?? controller.loadStatus(),
               updatedStatus.settings.requested,
@@ -179,7 +350,7 @@ final class AgentRuntime {
             self?.performDebouncedLidCloseActions()
         }
         pendingLidCloseActions = actions
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lidCloseDebounceSeconds, execute: actions)
+        lidEventQueue.asyncAfter(deadline: .now() + Self.lidCloseDebounceSeconds, execute: actions)
     }
 
     private func hasExternalDisplay() -> Bool {
@@ -254,6 +425,7 @@ final class AgentRuntime {
     deinit {
         pendingPowerReconcile?.cancel()
         pendingLidCloseActions?.cancel()
+        pendingTemporaryExpiry?.cancel()
         if let powerSourceRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .commonModes)
         }
