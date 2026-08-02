@@ -56,13 +56,13 @@ Safety constraints do not cancel the user's request. Missing external power, low
 
 ## Weekly schedule
 
-Each interval defines weekdays, start and end time, and the action to apply while that interval is active: do nothing, keep awake, keep awake for 15 minutes, or keep awake for 1 hour. “Keep awake” holds Lid Awake continuously for the whole interval. The 15-minute and 1-hour actions also hold while the lid is open; closing the lid starts the corresponding countdown, and opening it cancels and resets the countdown. If the countdown expires while the lid remains closed, holding stops until the lid is opened again. Intervals may cross midnight. Outside configured intervals, the selected fallback action is used: do nothing, keep awake, or keep the manual state.
+Each interval defines weekdays, start and end time, and the action to apply while that interval is active: use the standard mode, keep awake, keep awake for 15 minutes, or keep awake for 1 hour. “Standard mode” turns Lid Awake off and allows normal macOS sleep. “Keep awake” holds Lid Awake continuously for the whole interval. The 15-minute and 1-hour actions also hold while the lid is open; closing the lid starts the corresponding countdown, and opening it cancels and resets the countdown. If the countdown expires while the lid remains closed, holding stops until the lid is opened again. Intervals may cross midnight. Outside configured intervals, the selected fallback action is used: standard mode, keep awake, or do nothing (keep the manual state).
 
 The default template is disabled until saved and enabled:
 
 ```text
 Every day  08:00–23:00  Keep awake
-Every day  23:00–08:00  Do nothing
+Every day  23:00–08:00  Standard mode
 ```
 
 The schedule applies its action as soon as an interval becomes active and restores the previous manual mode when the interval ends. A timed action starts afresh every time the lid is closed during its active interval. A manually selected temporary mode remains in effect until it expires when no schedule action is controlling the mode.

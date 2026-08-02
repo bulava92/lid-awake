@@ -102,9 +102,9 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
 
         enabled.state = schedule.enabled ? .on : .off
         fallback.addItems(withTitles: [
-            t("Do nothing", "Ничего не делать"),
+            t("Standard mode", "Штатный режим"),
             t("Keep awake", "Удерживать активным"),
-            t("Keep manual state", "Сохранять ручной режим")
+            t("Do nothing", "Ничего не делать")
         ])
         fallback.selectItem(at: schedule.fallback == .off ? 0 : schedule.fallback == .on ? 1 : 2)
         fallback.widthAnchor.constraint(equalToConstant: 220).isActive = true
@@ -229,7 +229,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
         times.setContentCompressionResistancePriority(.required, for: .horizontal)
         mode.addItems(withTitles: [
             t("Keep awake", "Удерживать активным"),
-            t("Do nothing", "Ничего не делать"),
+            t("Standard mode", "Штатный режим"),
             t("Keep awake for 15 minutes", "Удерживать активным 15 минут"),
             t("Keep awake for 1 hour", "Удерживать активным 1 час")
         ])
@@ -333,7 +333,7 @@ final class ScheduleEditorController: NSObject, NSApplicationDelegate, NSTableVi
     private func actionTitle(_ mode: AwakeScheduleMode) -> String {
         switch mode {
         case .on: return t("Keep awake", "Удерживать активным")
-        case .off: return t("Do nothing", "Ничего не делать")
+        case .off: return t("Standard mode", "Штатный режим")
         case .minutes15: return t("15 minutes", "15 минут")
         case .hour1: return t("1 hour", "1 час")
         }

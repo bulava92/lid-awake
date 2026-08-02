@@ -175,7 +175,7 @@ func runSelfTests() throws {
     ])
     try schedule.validate()
     try expect(schedule.activeRule(at: formatter.date(from: "2026-07-20 12:00")!, calendar: calendar)?.mode == .minutes15, "day schedule must select the 15-minute lid-close action")
-    try expect(schedule.activeRule(at: formatter.date(from: "2026-07-20 23:30")!, calendar: calendar)?.mode == .off, "night schedule must select no action")
+    try expect(schedule.activeRule(at: formatter.date(from: "2026-07-20 23:30")!, calendar: calendar)?.mode == .off, "night schedule must select standard mode")
     try expect(schedule.mode(at: formatter.date(from: "2026-07-21 07:59")!, calendar: calendar) == .off, "overnight schedule must extend into the next day")
     try expect(schedule.activeRule(at: formatter.date(from: "2026-07-21 08:00")!, calendar: calendar)?.mode == .minutes15, "schedule boundary must switch actions")
     try expect(AwakeScheduleMode.minutes15.lidCloseDuration == 900 && AwakeScheduleMode.hour1.lidCloseDuration == 3600, "timed schedule actions must use the configured durations")

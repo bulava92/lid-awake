@@ -156,7 +156,7 @@ final class AgentRuntime {
             schedulePolicyKey = policyKey
         }
 
-        guard let activeMode, activeMode != .off else {
+        guard let activeMode else {
             if let baseline = scheduleBaseline {
                 var settings = controller.loadSettings()
                 settings.requested = baseline.requested
@@ -178,6 +178,13 @@ final class AgentRuntime {
         let desiredExpiry: Date?
 
         switch activeMode {
+        case .off:
+            pendingTemporaryExpiry?.cancel()
+            pendingTemporaryExpiry = nil
+            scheduledTemporaryHoldActive = false
+            timedHoldExpiredWhileClosed = false
+            desiredRequested = false
+            desiredExpiry = nil
         case .on:
             timedHoldExpiredWhileClosed = false
             scheduledTemporaryHoldActive = false
@@ -205,8 +212,6 @@ final class AgentRuntime {
                 desiredRequested = true
                 desiredExpiry = nil
             }
-        case .off:
-            return
         }
 
         if settings.requested != desiredRequested || settings.expiresAt != desiredExpiry {
@@ -268,8 +273,8 @@ final class AgentRuntime {
             switch rule.mode {
             case .off:
                 controller.appendEvent(L10n.text(
-                    "Schedule action on lid close: do nothing",
-                    "Действие расписания при закрытии крышки: ничего не делать"
+                    "Schedule action on lid close: use standard mode",
+                    "Действие расписания при закрытии крышки: штатный режим"
                 ))
                 return false
             case .on:
