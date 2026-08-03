@@ -11,6 +11,7 @@ final class AgentRuntime {
     private struct ScheduleBaseline {
         let requested: Bool
         let expiresAt: Date?
+        let temporaryModeIsScheduled: Bool
     }
 
     private let controller = LidAwakeController()
@@ -136,7 +137,32 @@ final class AgentRuntime {
         }
     }
 
+    private func userTemporaryModeIsActive(_ settings: LidAwakeSettings, now: Date) -> Bool {
+        settings.requested
+            && !settings.temporaryModeIsScheduled
+            && settings.expiresAt.map { $0 > now } == true
+    }
+
+    private func expiredUserTemporaryMode(_ settings: LidAwakeSettings, now: Date) -> Bool {
+        !settings.temporaryModeIsScheduled
+            && settings.expiresAt.map { $0 <= now } == true
+    }
+
     private func applySchedulePolicy(now: Date) throws {
+        var settings = controller.loadSettings()
+        if userTemporaryModeIsActive(settings, now: now) {
+            // A temporary mode selected by the user owns both requested and
+            // expiry state until it ends. The schedule must not overwrite it.
+            return
+        }
+        let userTemporaryExpired = expiredUserTemporaryMode(settings, now: now)
+        if userTemporaryExpired {
+            // Normalize an expired user timer before the schedule evaluates;
+            // otherwise a timed schedule could replace the expiry first.
+            _ = try controller.reconcile(now: now, forceApply: false)
+            settings = controller.loadSettings()
+        }
+
         let schedule = try AwakeScheduleStore().load()
         let activeRule = schedule.enabled ? schedule.activeRule(at: now) : nil
         let activeMode = activeRule?.mode ?? (schedule.enabled ? schedule.fallback.mode : nil)
@@ -158,9 +184,9 @@ final class AgentRuntime {
 
         guard let activeMode else {
             if let baseline = scheduleBaseline {
-                var settings = controller.loadSettings()
                 settings.requested = baseline.requested
                 settings.expiresAt = baseline.expiresAt
+                settings.temporaryModeIsScheduled = baseline.temporaryModeIsScheduled
                 try controller.saveSettings(settings)
                 scheduleBaseline = nil
             }
@@ -168,14 +194,17 @@ final class AgentRuntime {
         }
 
         if scheduleBaseline == nil {
-            let settings = controller.loadSettings()
-            scheduleBaseline = ScheduleBaseline(requested: settings.requested, expiresAt: settings.expiresAt)
+            scheduleBaseline = ScheduleBaseline(
+                requested: settings.requested,
+                expiresAt: settings.expiresAt,
+                temporaryModeIsScheduled: settings.temporaryModeIsScheduled
+            )
         }
 
-        var settings = controller.loadSettings()
         let lidClosed = controller.readLidClosed() == true
         let desiredRequested: Bool
         let desiredExpiry: Date?
+        let desiredTemporaryModeIsScheduled: Bool
 
         switch activeMode {
         case .off:
@@ -185,11 +214,13 @@ final class AgentRuntime {
             timedHoldExpiredWhileClosed = false
             desiredRequested = false
             desiredExpiry = nil
+            desiredTemporaryModeIsScheduled = false
         case .on:
             timedHoldExpiredWhileClosed = false
             scheduledTemporaryHoldActive = false
             desiredRequested = true
             desiredExpiry = nil
+            desiredTemporaryModeIsScheduled = false
         case .minutes15, .hour1:
             if !lidClosed {
                 // The timed modes still hold the Mac while the lid is open.
@@ -200,24 +231,40 @@ final class AgentRuntime {
                 pendingTemporaryExpiry = nil
                 desiredRequested = true
                 desiredExpiry = nil
+                desiredTemporaryModeIsScheduled = false
             } else if timedHoldExpiredWhileClosed {
                 desiredRequested = false
                 desiredExpiry = nil
+                desiredTemporaryModeIsScheduled = false
+            } else if userTemporaryExpired {
+                // If the user timer ended while the lid was already closed,
+                // resume the active timed schedule with a fresh countdown.
+                desiredRequested = true
+                desiredExpiry = now.addingTimeInterval(TimeInterval(activeMode.lidCloseDuration ?? 0))
+                desiredTemporaryModeIsScheduled = true
             } else if let expiry = settings.expiresAt, expiry > now {
                 scheduledTemporaryHoldActive = true
                 if pendingTemporaryExpiry == nil { armTemporaryExpiryTimerIfNeeded() }
                 desiredRequested = true
                 desiredExpiry = expiry
+                desiredTemporaryModeIsScheduled = true
             } else {
                 desiredRequested = true
                 desiredExpiry = nil
+                desiredTemporaryModeIsScheduled = false
             }
         }
 
-        if settings.requested != desiredRequested || settings.expiresAt != desiredExpiry {
+        if settings.requested != desiredRequested
+            || settings.expiresAt != desiredExpiry
+            || settings.temporaryModeIsScheduled != desiredTemporaryModeIsScheduled {
             settings.requested = desiredRequested
             settings.expiresAt = desiredExpiry
+            settings.temporaryModeIsScheduled = desiredTemporaryModeIsScheduled
             try controller.saveSettings(settings)
+        }
+        if desiredTemporaryModeIsScheduled, desiredExpiry != nil, pendingTemporaryExpiry == nil {
+            armTemporaryExpiryTimerIfNeeded()
         }
     }
 
@@ -225,7 +272,8 @@ final class AgentRuntime {
         pendingTemporaryExpiry?.cancel()
         pendingTemporaryExpiry = nil
 
-        guard let expiry = controller.loadSettings().expiresAt else { return }
+        let settings = controller.loadSettings()
+        guard settings.temporaryModeIsScheduled, let expiry = settings.expiresAt else { return }
         if let schedule = try? AwakeScheduleStore().load(),
            let mode = schedule.activeRule(at: Date())?.mode,
            mode.lidCloseDuration != nil {
@@ -244,7 +292,17 @@ final class AgentRuntime {
             }
 
             let settings = self.controller.loadSettings()
-            guard settings.requested, let currentExpiry = settings.expiresAt else { return }
+            guard settings.requested, let currentExpiry = settings.expiresAt else {
+                self.evaluatePolicy(force: true)
+                return
+            }
+            guard settings.temporaryModeIsScheduled else {
+                // The user started a temporary mode while a scheduled
+                // countdown was pending. Never disable that user-owned mode.
+                self.timedHoldExpiredWhileClosed = self.controller.readLidClosed() == true
+                self.evaluatePolicy(force: true)
+                return
+            }
             // A manual temporary-mode change replaced this schedule hold.
             guard abs(currentExpiry.timeIntervalSince(deadline)) < 1 else {
                 self.armTemporaryExpiryTimerIfNeeded()
@@ -267,8 +325,11 @@ final class AgentRuntime {
     }
 
     private func applyScheduleActionForLidClose() -> Bool {
-        try? applySchedulePolicy(now: Date())
-        guard let rule = try? AwakeScheduleStore().load().activeRule(at: Date()) else { return false }
+        let now = Date()
+        let settings = controller.loadSettings()
+        guard !userTemporaryModeIsActive(settings, now: now) else { return false }
+        try? applySchedulePolicy(now: now)
+        guard let rule = try? AwakeScheduleStore().load().activeRule(at: now) else { return false }
         do {
             switch rule.mode {
             case .off:
@@ -290,7 +351,7 @@ final class AgentRuntime {
                 guard let duration = rule.mode.lidCloseDuration else { return false }
                 timedHoldExpiredWhileClosed = false
                 scheduledTemporaryHoldActive = true
-                try controller.requestTemporary(duration: duration)
+                try controller.requestTemporary(duration: duration, scheduleOverride: true)
                 armTemporaryExpiryTimerIfNeeded()
                 controller.appendEvent(L10n.text(
                     "Schedule action on lid close: keep awake for \(duration / 60) minutes",

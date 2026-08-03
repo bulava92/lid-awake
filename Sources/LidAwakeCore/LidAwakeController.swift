@@ -50,6 +50,10 @@ public struct LidAwakeSettings: Codable, Equatable {
     public var lockOnLidClose: Bool
     public var soundOnLidClose: Bool
     public var lidCloseSoundVolume: Int
+    /// Distinguishes a schedule-owned countdown from a temporary mode chosen
+    /// manually in the app or through the CLI. This is persisted so the
+    /// background agent can apply the same precedence across processes.
+    public var temporaryModeIsScheduled: Bool
 
     public init(requested: Bool = false, acOnly: Bool = true, batteryLimit: Int = 20,
                 maxDuration: Int = 28_800, expiresAt: Date? = nil,
@@ -57,7 +61,8 @@ public struct LidAwakeSettings: Codable, Equatable {
                 launchAtLogin: Bool = true, skipLidActionsWithExternalDisplay: Bool = false,
                 displaySleepOnLidClose: Bool = false,
                 lockOnLidClose: Bool = false, soundOnLidClose: Bool = false,
-                lidCloseSoundVolume: Int = 50) {
+                lidCloseSoundVolume: Int = 50,
+                temporaryModeIsScheduled: Bool = false) {
         self.requested = requested; self.acOnly = acOnly; self.batteryLimit = batteryLimit
         self.maxDuration = maxDuration; self.expiresAt = expiresAt
         self.thermalProtection = thermalProtection; self.notifications = notifications
@@ -66,13 +71,14 @@ public struct LidAwakeSettings: Codable, Equatable {
         self.displaySleepOnLidClose = displaySleepOnLidClose
         self.lockOnLidClose = lockOnLidClose; self.soundOnLidClose = soundOnLidClose
         self.lidCloseSoundVolume = lidCloseSoundVolume
+        self.temporaryModeIsScheduled = temporaryModeIsScheduled
     }
 
     enum CodingKeys: String, CodingKey {
         case requested, acOnly, batteryLimit, maxDuration, expiresAt, thermalProtection
         case notifications, launchAtLogin, skipLidActionsWithExternalDisplay
         case displaySleepOnLidClose, lockOnLidClose
-        case soundOnLidClose, lidCloseSoundVolume
+        case soundOnLidClose, lidCloseSoundVolume, temporaryModeIsScheduled
     }
 
     public init(from decoder: Decoder) throws {
@@ -90,6 +96,7 @@ public struct LidAwakeSettings: Codable, Equatable {
         lockOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .lockOnLidClose) ?? false
         soundOnLidClose = try c.decodeIfPresent(Bool.self, forKey: .soundOnLidClose) ?? false
         lidCloseSoundVolume = try c.decodeIfPresent(Int.self, forKey: .lidCloseSoundVolume) ?? 50
+        temporaryModeIsScheduled = try c.decodeIfPresent(Bool.self, forKey: .temporaryModeIsScheduled) ?? false
     }
 }
 
@@ -163,14 +170,16 @@ public struct LidAwakeController {
 
     public func requestEnabled(recordScheduleOverride: Bool = true) throws {
         if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.on) }
-        var settings = loadSettings(); settings.requested = true; settings.expiresAt = nil
+        var settings = loadSettings(); settings.requested = true; settings.expiresAt = nil; settings.temporaryModeIsScheduled = false
         try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
-    public func requestTemporary(duration: Int) throws {
+    public func requestTemporary(duration: Int, scheduleOverride: Bool = false) throws {
         var settings = loadSettings()
         guard duration >= 60, duration <= settings.maxDuration else { throw LidAwakeError.invalidDuration }
-        settings.requested = true; settings.expiresAt = Date().addingTimeInterval(TimeInterval(duration))
+        settings.requested = true
+        settings.expiresAt = Date().addingTimeInterval(TimeInterval(duration))
+        settings.temporaryModeIsScheduled = scheduleOverride
         try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
@@ -178,7 +187,7 @@ public struct LidAwakeController {
 
     public func requestDisabled(recordScheduleOverride: Bool = true) throws {
         if recordScheduleOverride { AwakeScheduleStore().recordManualOverride(.off) }
-        var settings = loadSettings(); settings.requested = false; settings.expiresAt = nil
+        var settings = loadSettings(); settings.requested = false; settings.expiresAt = nil; settings.temporaryModeIsScheduled = false
         try saveSettings(settings); _ = try reconcile(forceApply: true)
     }
 
@@ -200,7 +209,7 @@ public struct LidAwakeController {
         var updated = settings
         guard updated.requested else { return (.disabled, L10n.text("Disabled", "Выключено"), updated, nil) }
         if let expiry = updated.expiresAt, expiry <= now {
-            updated.requested = false; updated.expiresAt = nil
+            updated.requested = false; updated.expiresAt = nil; updated.temporaryModeIsScheduled = false
             return (.disabled, L10n.text("Temporary mode completed", "Временный режим завершён"), updated, nil)
         }
         let remaining = updated.expiresAt.map { max(0, Int($0.timeIntervalSince(now))) }
@@ -303,6 +312,7 @@ public struct LidAwakeController {
         language: \(L10n.selectedLanguage.rawValue)
         requested: \(settings.requested)
         mode: \(settings.expiresAt == nil ? "permanent" : "temporary")
+        temporary-mode-source: \(settings.expiresAt == nil ? "none" : (settings.temporaryModeIsScheduled ? "schedule" : "user"))
         schedule-enabled: \(schedule?.enabled ?? false)
         schedule-mode: \(schedule?.mode(at: Date())?.rawValue ?? "manual")
         schedule-next: \(schedule?.nextBoundary(after: Date()).map { ISO8601DateFormatter().string(from: $0) } ?? "none")

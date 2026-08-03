@@ -65,7 +65,7 @@ Every day  08:00–23:00  Keep awake
 Every day  23:00–08:00  Standard mode
 ```
 
-The schedule applies its action as soon as an interval becomes active and restores the previous manual mode when the interval ends. A timed action starts afresh every time the lid is closed during its active interval. A manually selected temporary mode remains in effect until it expires when no schedule action is controlling the mode.
+The schedule applies its action as soon as an interval becomes active and restores the previous manual mode when the interval ends. A timed action starts afresh every time the lid is closed during its active interval. A manually selected temporary mode always takes priority over the schedule and remains in effect until it expires; the schedule resumes immediately afterwards.
 
 ## Power and battery handling
 

@@ -17,6 +17,7 @@ final class LidAwakeCoreTests: XCTestCase {
         XCTAssertFalse(settings.soundOnLidClose)
         XCTAssertEqual(settings.lidCloseSoundVolume, 50)
         XCTAssertNil(settings.expiresAt)
+        XCTAssertFalse(settings.temporaryModeIsScheduled)
     }
 
     func testSupportPaths() {
@@ -147,6 +148,7 @@ final class LidAwakeCoreTests: XCTestCase {
         XCTAssertFalse(settings.lockOnLidClose)
         XCTAssertFalse(settings.soundOnLidClose)
         XCTAssertEqual(settings.lidCloseSoundVolume, 50)
+        XCTAssertFalse(settings.temporaryModeIsScheduled)
     }
 
     func testNewSettingsRoundTrip() throws {
@@ -161,7 +163,8 @@ final class LidAwakeCoreTests: XCTestCase {
             skipLidActionsWithExternalDisplay: true,
             lockOnLidClose: true,
             soundOnLidClose: true,
-            lidCloseSoundVolume: 75
+            lidCloseSoundVolume: 75,
+            temporaryModeIsScheduled: true
         )
         let data = try JSONEncoder().encode(original)
         XCTAssertEqual(try JSONDecoder().decode(LidAwakeSettings.self, from: data), original)

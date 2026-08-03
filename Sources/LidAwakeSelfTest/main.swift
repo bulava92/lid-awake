@@ -28,6 +28,7 @@ func runSelfTests() throws {
     try expect(defaults.soundOnLidClose == false, "lid-close sound must be disabled by default")
     try expect(defaults.lidCloseSoundVolume == 50, "default sound volume must be 50%")
     try expect(defaults.expiresAt == nil, "default mode must not have an expiry")
+    try expect(defaults.temporaryModeIsScheduled == false, "manual temporary mode must be the default source")
 
     let now = Date(timeIntervalSince1970: 100)
     let safePower = PowerInfo(onAC: true, batteryPercent: 80)
@@ -107,6 +108,7 @@ func runSelfTests() throws {
     try expect(expired.0 == .disabled, "expired temporary mode must be disabled")
     try expect(expired.2.requested == false, "expired temporary mode must clear requested state")
     try expect(expired.2.expiresAt == nil, "expired temporary mode must clear expiry")
+    try expect(expired.2.temporaryModeIsScheduled == false, "expired temporary mode must clear its source")
 
     let legacyData = Data("{\"requested\":false,\"acOnly\":true,\"batteryLimit\":20,\"maxDuration\":28800}".utf8)
     let legacy = try JSONDecoder().decode(LidAwakeSettings.self, from: legacyData)
@@ -118,6 +120,7 @@ func runSelfTests() throws {
     try expect(legacy.lockOnLidClose == false, "legacy settings must disable screen locking")
     try expect(legacy.soundOnLidClose == false, "legacy settings must disable lid-close sound")
     try expect(legacy.lidCloseSoundVolume == 50, "legacy settings must use 50% sound volume")
+    try expect(legacy.temporaryModeIsScheduled == false, "legacy settings must default to a manual temporary source")
 
     let original = LidAwakeSettings(
         requested: true,
@@ -131,7 +134,8 @@ func runSelfTests() throws {
         displaySleepOnLidClose: true,
         lockOnLidClose: true,
         soundOnLidClose: true,
-        lidCloseSoundVolume: 75
+        lidCloseSoundVolume: 75,
+        temporaryModeIsScheduled: true
     )
     let roundTrip = try JSONDecoder().decode(LidAwakeSettings.self, from: JSONEncoder().encode(original))
     try expect(roundTrip == original, "settings Codable round-trip must preserve all values")

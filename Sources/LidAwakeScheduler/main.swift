@@ -20,7 +20,7 @@ private func fail(_ message: String, code: Int32 = 1) -> Never {
 private func temporaryModeIsActive(now: Date = Date()) -> Bool {
     let settings = controller.loadSettings()
     guard settings.requested, let expiry = settings.expiresAt else { return false }
-    return expiry > now
+    return expiry > now && !settings.temporaryModeIsScheduled
 }
 
 private func status(now: Date = Date()) throws -> ScheduleStatus {

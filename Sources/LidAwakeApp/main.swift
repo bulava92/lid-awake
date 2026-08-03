@@ -85,13 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
         let status = (try? controller.reconcile()) ?? controller.loadStatus()
-        let settings = controller.loadSettings()
+        let settings = status?.settings ?? controller.loadSettings()
+        let schedule = try? AwakeScheduleStore().load()
         let state = status?.state ?? .unknown
 
+        addLabel(currentModeTitle(state, settings: settings, schedule: schedule))
         if let remaining = status?.remainingSeconds, settings.requested, settings.expiresAt != nil {
-            addLabel(t("Temporary mode: active, \(formatRemaining(remaining)) remaining", "Временный режим: активен, осталось \(formatRemaining(remaining))"))
-        } else {
-            addLabel(t("Current mode: ", "Текущий режим: ") + localizedState(state, temporary: false))
+            addLabel(timerRemainingTitle(remaining, expiresAt: settings.expiresAt))
         }
         if state == .blocked, let reason = status?.reason { addLabel(reason) }
         menu.addItem(.separator())
@@ -118,8 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(submenu(t("Temporary mode", "Временный режим"), temporaryMenu))
 
-        let scheduleEnabled = (try? AwakeScheduleStore().load().enabled) == true
-        let scheduleToggle = item(t("Schedule enabled", "Расписание включено"), #selector(toggleSchedule))
+        let scheduleEnabled = schedule?.enabled == true
+        let scheduleToggle = item(t("Use schedule", "Использовать расписание"), #selector(toggleSchedule))
         scheduleToggle.state = scheduleEnabled ? .on : .off
         menu.addItem(scheduleToggle)
         menu.addItem(item(t("Configure schedule…", "Настроить расписание…"), #selector(openScheduleEditor)))
@@ -213,6 +213,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .blocked: return t("Paused", "Приостановлено")
         case .unknown: return t("Unknown", "Неизвестно")
         }
+    }
+
+    private func currentModeTitle(_ state: LidAwakeState, settings: LidAwakeSettings, schedule: AwakeSchedule?) -> String {
+        let base = t(
+            "Current mode: \(localizedState(state, temporary: false))",
+            "Текущий режим: \(localizedState(state, temporary: false))"
+        )
+        if settings.requested, let expiry = settings.expiresAt {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            let source = settings.temporaryModeIsScheduled
+                ? t("scheduled until", "по расписанию до")
+                : t("manual until", "вручную до")
+            return "\(base) — \(source) \(formatter.string(from: expiry))"
+        }
+        if schedule?.enabled == true, schedule?.mode(at: Date()) != nil {
+            return base + t(" — scheduled", " — по расписанию")
+        }
+        return base
+    }
+
+    private func timerRemainingTitle(_ seconds: Int, expiresAt: Date?) -> String {
+        if let expiresAt {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return t(
+                "Remaining: \(formatRemaining(seconds)), until \(formatter.string(from: expiresAt))",
+                "Осталось: \(formatRemaining(seconds)), до \(formatter.string(from: expiresAt))"
+            )
+        }
+        return t("Remaining: \(formatRemaining(seconds))", "Осталось: \(formatRemaining(seconds))")
     }
 
     private func formatRemaining(_ seconds: Int) -> String {
