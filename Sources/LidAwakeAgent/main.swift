@@ -3,7 +3,6 @@ import Darwin
 import IOKit
 import IOKit.ps
 import IOKit.pwr_mgt
-import CoreGraphics
 import UserNotifications
 import LidAwakeCore
 
@@ -123,18 +122,23 @@ final class AgentRuntime {
 
     private func evaluatePolicy(force: Bool) {
         do {
-            let now = Date()
-            try applySchedulePolicy(now: now)
-            let shouldForce = force || now.timeIntervalSince(lastForcedApply) >= 300
-            let status = try controller.reconcile(now: now, forceApply: shouldForce)
-            if shouldForce { lastForcedApply = Date() }
-            ensureNotificationPermissionIfNeeded(status.settings)
-            notifyTransitionIfNeeded(status)
-            lastStatus = status
+            _ = try reconcilePolicy(now: Date(), force: force)
         } catch {
             controller.appendEvent("Policy error: \(error.localizedDescription)")
             fputs("lid-awake-agent: \(error.localizedDescription)\n", stderr)
         }
+    }
+
+    @discardableResult
+    private func reconcilePolicy(now: Date, force: Bool) throws -> LidAwakeStatus {
+        try applySchedulePolicy(now: now)
+        let shouldForce = force || now.timeIntervalSince(lastForcedApply) >= 300
+        let status = try controller.reconcile(now: now, forceApply: shouldForce)
+        if shouldForce { lastForcedApply = now }
+        ensureNotificationPermissionIfNeeded(status.settings)
+        notifyTransitionIfNeeded(status)
+        lastStatus = status
+        return status
     }
 
     private func userTemporaryModeIsActive(_ settings: LidAwakeSettings, now: Date) -> Bool {
@@ -324,56 +328,50 @@ final class AgentRuntime {
         lidEventQueue.asyncAfter(deadline: .now() + max(0, deadline.timeIntervalSinceNow), execute: timer)
     }
 
-    private func applyScheduleActionForLidClose() -> Bool {
+    private func applyScheduleActionForLidClose() throws -> Bool {
         let now = Date()
         let settings = controller.loadSettings()
         guard !userTemporaryModeIsActive(settings, now: now) else { return false }
-        try? applySchedulePolicy(now: now)
-        guard let rule = try? AwakeScheduleStore().load().activeRule(at: now) else { return false }
-        do {
-            switch rule.mode {
-            case .off:
-                controller.appendEvent(L10n.text(
-                    "Schedule action on lid close: use standard mode",
-                    "Действие расписания при закрытии крышки: штатный режим"
-                ))
-                return false
-            case .on:
-                pendingTemporaryExpiry?.cancel()
-                pendingTemporaryExpiry = nil
-                scheduledTemporaryHoldActive = false
-                try controller.requestEnabled(recordScheduleOverride: false)
-                controller.appendEvent(L10n.text(
-                    "Schedule action on lid close: keep awake",
-                    "Действие расписания при закрытии крышки: удерживать активным"
-                ))
-            case .minutes15, .hour1:
-                guard let duration = rule.mode.lidCloseDuration else { return false }
-                timedHoldExpiredWhileClosed = false
-                scheduledTemporaryHoldActive = true
-                try controller.requestTemporary(duration: duration, scheduleOverride: true)
-                armTemporaryExpiryTimerIfNeeded()
-                controller.appendEvent(L10n.text(
-                    "Schedule action on lid close: keep awake for \(duration / 60) minutes",
-                    "Действие расписания при закрытии крышки: удерживать активным \(duration / 60) мин."
-                ))
-            }
-            return true
-        } catch {
-            controller.appendEvent("Could not apply schedule action on lid close: \(error.localizedDescription)")
+        try applySchedulePolicy(now: now)
+        guard let rule = try AwakeScheduleStore().load().activeRule(at: now) else { return false }
+        switch rule.mode {
+        case .off:
+            controller.appendEvent(L10n.text(
+                "Schedule action on lid close: use standard mode",
+                "Действие расписания при закрытии крышки: штатный режим"
+            ))
             return false
+        case .on:
+            pendingTemporaryExpiry?.cancel()
+            pendingTemporaryExpiry = nil
+            scheduledTemporaryHoldActive = false
+            try controller.requestEnabled(recordScheduleOverride: false)
+            controller.appendEvent(L10n.text(
+                "Schedule action on lid close: keep awake",
+                "Действие расписания при закрытии крышки: удерживать активным"
+            ))
+        case .minutes15, .hour1:
+            guard let duration = rule.mode.lidCloseDuration else { return false }
+            timedHoldExpiredWhileClosed = false
+            scheduledTemporaryHoldActive = true
+            try controller.requestTemporary(duration: duration, scheduleOverride: true)
+            armTemporaryExpiryTimerIfNeeded()
+            controller.appendEvent(L10n.text(
+                "Schedule action on lid close: keep awake for \(duration / 60) minutes",
+                "Действие расписания при закрытии крышки: удерживать активным \(duration / 60) мин."
+            ))
         }
+        return true
     }
 
     fileprivate func handleLidStateChange() {
         guard let lidClosed = controller.readLidClosed() else { return }
-        defer { previousLidClosed = lidClosed }
+        let prev = previousLidClosed
+        previousLidClosed = lidClosed
         if !lidClosed {
             pendingLidCloseActions?.cancel()
             pendingLidCloseActions = nil
-            if let schedule = try? AwakeScheduleStore().load(),
-               schedule.enabled,
-               schedule.mode(at: Date())?.lidCloseDuration != nil {
+            if let schedule = try? AwakeScheduleStore().load(), schedule.enabled, schedule.mode(at: Date())?.lidCloseDuration != nil {
                 timedHoldExpiredWhileClosed = false
                 scheduledTemporaryHoldActive = false
                 pendingTemporaryExpiry?.cancel()
@@ -382,34 +380,33 @@ final class AgentRuntime {
             evaluatePolicy(force: true)
             return
         }
-        guard previousLidClosed != true, lidClosed else { return }
-
-        let settings = controller.loadSettings()
-
-        if settings.skipLidActionsWithExternalDisplay, hasExternalDisplay() {
-            controller.appendEvent(L10n.text(
-                "Lid actions skipped because an external display is connected",
-                "Действия при закрытии крышки пропущены: подключён внешний монитор"
-            ))
-            return
-        }
-
-        // Start the scheduled hold before logging and playing the optional
-        // sound. The Mac may begin clamshell sleep immediately after this
-        // notification, so the helper must be enabled first.
-        _ = applyScheduleActionForLidClose()
+        guard prev != true, lidClosed else { return }
 
         controller.recordLidClose()
-        if settings.soundOnLidClose {
-            if !controller.playLidCloseSound(volumePercent: settings.lidCloseSoundVolume) {
-                controller.appendEvent("Could not play lid-close sound")
+        do {
+            let scheduleApplied = try applyScheduleActionForLidClose()
+            // This is intentionally a fresh schedule + reconcile pass. Never
+            // use lastStatus here: it can describe the state before the lid
+            // close changed the schedule-owned settings.
+            let freshStatus = try reconcilePolicy(now: Date(), force: true)
+            let freshSettings = freshStatus.settings
+            let extDisplayDetected = freshSettings.skipLidActionsWithExternalDisplay && DisplayDetector.checkSystem()
+            let plan = LidCloseActionDecider.plan(status: freshStatus, externalDisplayDetected: extDisplayDetected)
+            controller.appendEvent("LidCloseEvent: prev=\(String(describing: prev)), schedApplied=\(scheduleApplied), freshReq=\(freshSettings.requested), freshState=\(freshStatus.state.rawValue), extDisplay=\(extDisplayDetected)")
+            guard plan.shouldDebounce else {
+                controller.appendEvent("Lid actions skipped: \(plan.reason)")
+                return
             }
+            if plan.shouldPlaySound {
+                let soundStarted = controller.playLidCloseSound(volumePercent: freshSettings.lidCloseSoundVolume)
+                controller.appendEvent("Sound action: started=\(soundStarted)")
+            }
+        } catch {
+            // A failed schedule/reconcile must not trigger actions from stale
+            // settings. The physical lid event itself remains logged.
+            controller.appendEvent("Lid close policy failed; actions skipped: \(error.localizedDescription)")
+            return
         }
-
-        evaluatePolicy(force: false)
-        guard let updatedStatus = lastStatus ?? controller.loadStatus(),
-              updatedStatus.settings.requested,
-              updatedStatus.state == .enabled else { return }
 
         pendingLidCloseActions?.cancel()
         let actions = DispatchWorkItem { [weak self] in
@@ -419,39 +416,40 @@ final class AgentRuntime {
         lidEventQueue.asyncAfter(deadline: .now() + Self.lidCloseDebounceSeconds, execute: actions)
     }
 
-    private func hasExternalDisplay() -> Bool {
-        var displays = [CGDirectDisplayID](repeating: 0, count: 32)
-        var count: UInt32 = 0
-        guard CGGetOnlineDisplayList(UInt32(displays.count), &displays, &count) == .success else { return false }
-        return displays.prefix(Int(count)).contains { CGDisplayIsBuiltin($0) == 0 }
-    }
-
     private func performDebouncedLidCloseActions() {
         pendingLidCloseActions = nil
-        guard controller.readLidClosed() == true else { return }
-
-        evaluatePolicy(force: false)
-        guard let status = lastStatus ?? controller.loadStatus(),
-              status.settings.requested,
-              status.state == .enabled else { return }
+        guard controller.readLidClosed() == true else {
+            controller.appendEvent("Debounce cancelled: lid opened")
+            return
+        }
+        let status: LidAwakeStatus
+        do {
+            status = try reconcilePolicy(now: Date(), force: true)
+        } catch {
+            controller.appendEvent("Debounce policy failed; actions skipped: \(error.localizedDescription)")
+            return
+        }
+        let externalDisplayDetected = status.settings.skipLidActionsWithExternalDisplay && DisplayDetector.checkSystem()
+        let plan = LidCloseActionDecider.plan(status: status, externalDisplayDetected: externalDisplayDetected)
+        guard plan.shouldDebounce else {
+            controller.appendEvent("Debounce cancelled: \(plan.reason)")
+            return
+        }
 
         var locked = false
         if status.settings.lockOnLidClose {
             locked = controller.lockScreen()
-            if !locked {
-                controller.appendEvent(L10n.text("Could not lock screen after lid close", "Не удалось заблокировать экран после закрытия крышки"))
-            }
+            controller.appendEvent(locked ? "Screen locked" : "Screen lock failed")
         }
 
         if status.settings.displaySleepOnLidClose {
             if locked { Thread.sleep(forTimeInterval: 0.3) }
-            if run("/usr/bin/pmset", ["displaysleepnow"]) {
-                controller.appendEvent(L10n.text("Displays turned off after lid close", "Дисплеи выключены после закрытия крышки"))
+            let result = controller.runProcess(executable: "/usr/bin/pmset", arguments: ["displaysleepnow"], timeout: 3)
+            if result.launchError == nil, !result.timedOut, result.exitCode == 0 {
+                controller.appendEvent("Displays asleep")
             } else {
-                controller.appendEvent(L10n.text("Could not turn displays off after lid close", "Не удалось выключить дисплеи после закрытия крышки"))
+                controller.appendEvent("Displays asleep failed: exit=\(result.exitCode.map(String.init) ?? "none") timeout=\(result.timedOut)")
             }
-        } else if locked {
-            controller.appendEvent(L10n.text("Screen locked after lid close", "Экран заблокирован после закрытия крышки"))
         }
     }
 
@@ -465,9 +463,7 @@ final class AgentRuntime {
     }
 
     private func notifyTransitionIfNeeded(_ status: LidAwakeStatus) {
-        guard status.settings.notifications,
-              let old = lastStatus,
-              old.state != status.state || old.reason != status.reason else { return }
+        guard status.settings.notifications, let old = lastStatus, old.state != status.state || old.reason != status.reason else { return }
         let content = UNMutableNotificationContent()
         content.title = "Lid Awake"
         content.body = status.reason
@@ -477,24 +473,11 @@ final class AgentRuntime {
         }
     }
 
-    private func run(_ path: String, _ arguments: [String]) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return false }
-        process.waitUntilExit()
-        return process.terminationStatus == 0
-    }
-
     deinit {
         pendingPowerReconcile?.cancel()
         pendingLidCloseActions?.cancel()
         pendingTemporaryExpiry?.cancel()
-        if let powerSourceRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .commonModes)
-        }
+        if let powerSourceRunLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSourceRunLoopSource, .commonModes) }
         if notifier != 0 { IOObjectRelease(notifier) }
         if rootDomain != 0 { IOObjectRelease(rootDomain) }
         if let notificationPort { IONotificationPortDestroy(notificationPort) }

@@ -1,9 +1,23 @@
 import Foundation
 import Darwin
+import CoreGraphics
 import LidAwakeCore
 
 struct SelfTestFailure: Error {
     let message: String
+}
+
+struct SelfTestDisplayProvider: DisplayInfoProvider {
+    let builtin: [CGDirectDisplayID: Bool]
+    let active: [CGDirectDisplayID: Bool]
+    let online: [CGDirectDisplayID: Bool]
+    func isOnline(_ id: CGDirectDisplayID) -> Bool { online[id] ?? false }
+    func isActive(_ id: CGDirectDisplayID) -> Bool { active[id] ?? false }
+    func isBuiltin(_ id: CGDirectDisplayID) -> Bool { builtin[id] ?? false }
+    func bounds(_ id: CGDirectDisplayID) -> CGRect { CGRect(x: 0, y: 0, width: 1000, height: 1000) }
+    func isInMirrorSet(_ id: CGDirectDisplayID) -> Bool { false }
+    func mirrorsDisplay(_ id: CGDirectDisplayID) -> CGDirectDisplayID { kCGNullDirectDisplay }
+    func isVirtual(_ id: CGDirectDisplayID) -> Bool { false }
 }
 
 var checks = 0
@@ -166,6 +180,48 @@ func runSelfTests() throws {
         !LidAwakeController.screenLockDelayIsImmediate(output: "screenLock delay is 5 seconds"),
         "non-zero screen-lock delay must be rejected"
     )
+
+    let runner = LidAwakeController()
+    let shortProcess = runner.runProcess(executable: "/bin/sh", arguments: ["-c", "printf out; printf err >&2"], timeout: 2)
+    try expect(shortProcess.stdout == "out" && shortProcess.stderr == "err" && shortProcess.exitCode == 0 && !shortProcess.timedOut,
+               "process runner must capture both output streams")
+    let sleepingProcess = runner.runProcess(executable: "/bin/sleep", arguments: ["10"], timeout: 0.2)
+    try expect(sleepingProcess.timedOut && sleepingProcess.duration < 2,
+               "process runner must terminate a timed-out child")
+    let ignoringTermProcess = runner.runProcess(executable: "/bin/sh", arguments: ["-c", "trap '' TERM; sleep 10"], timeout: 0.2)
+    try expect(ignoringTermProcess.timedOut && ignoringTermProcess.duration < 2,
+               "process runner must escalate from SIGTERM to SIGKILL")
+    let inheritedPipeProcess = runner.runProcess(executable: "/bin/sh", arguments: ["-c", "sleep 10 & printf child; exit 0"], timeout: 2)
+    try expect(inheritedPipeProcess.exitCode == 0 && inheritedPipeProcess.stdout == "child" && inheritedPipeProcess.duration < 2,
+               "process runner must not wait for inherited pipe descriptors")
+    let largeOutputScript = "i=0; while [ $i -lt 20000 ]; do printf oooooooooo; printf eeeeeeeeee >&2; i=$((i+1)); done"
+    let largeOutputProcess = runner.runProcess(executable: "/bin/sh", arguments: ["-c", largeOutputScript], timeout: 3)
+    try expect(!largeOutputProcess.timedOut && largeOutputProcess.exitCode == 0
+               && largeOutputProcess.stdout.count > 100_000 && largeOutputProcess.stderr.count > 100_000,
+               "process runner must drain large stdout and stderr concurrently")
+    let missingProcess = runner.runProcess(executable: "/definitely/not/a/real/executable", arguments: [], timeout: 0.2)
+    try expect(missingProcess.launchError != nil && !missingProcess.timedOut,
+               "process runner must report launch errors")
+
+    let builtinOnly = DisplayDetector.hasRealExternalDisplay(
+        provider: SelfTestDisplayProvider(builtin: [1: true], active: [1: true], online: [1: true]),
+        onlineDisplays: [1]
+    )
+    try expect(!builtinOnly, "built-in display must not trigger external-display bypass")
+    let enabledStatus = LidAwakeStatus(
+        state: .enabled, reason: "test",
+        settings: LidAwakeSettings(requested: true, acOnly: false, soundOnLidClose: true),
+        power: safePower, thermal: .nominal, remainingSeconds: nil, updatedAt: now
+    )
+    let enabledPlan = LidCloseActionDecider.plan(status: enabledStatus, externalDisplayDetected: false)
+    try expect(enabledPlan.shouldPlaySound && enabledPlan.shouldDebounce, "enabled lid action must play sound and debounce lock")
+    let offStatus = LidAwakeStatus(
+        state: .disabled, reason: "test",
+        settings: LidAwakeSettings(requested: false, acOnly: false, soundOnLidClose: true),
+        power: safePower, thermal: .nominal, remainingSeconds: nil, updatedAt: now
+    )
+    let offPlan = LidCloseActionDecider.plan(status: offStatus, externalDisplayDetected: false)
+    try expect(!offPlan.shouldPlaySound && !offPlan.shouldDebounce, "disabled lid action must do nothing")
 
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
